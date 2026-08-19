@@ -71,6 +71,9 @@
   input[type=color] { width: 100%; height: 30px; background: none; border: 1px solid var(--line);
                       border-radius: 5px; padding: 2px; cursor: pointer; }
   .empty { color: var(--muted); font-size: .78rem; line-height: 1.9; }
+  .multi { background: #33291a; border: 1px solid var(--accent); color: var(--accent);
+           border-radius: 6px; padding: 7px 10px; margin-bottom: 12px; font-size: .8rem; }
+  .multi span { display: block; color: #b9975a; font-size: .68rem; margin-top: 2px; }
   .note { margin-top: 16px; padding: 10px 11px; border-radius: 6px; background: var(--panel2);
           border-left: 3px solid var(--accent); font-size: .73rem; line-height: 1.8; color: #b9c6d3; }
   .note code { font-family: var(--mono); background: #0d1319; padding: 1px 4px; border-radius: 3px; }
@@ -117,14 +120,14 @@
     </div>
     <div id="help">
       <b>右ドラッグ</b> 見回す　<b>右+WASD/QE</b> 飛ぶ　<b>中ドラッグ</b> 平行移動　<b>ホイール</b> 前後<br>
-      <b>左クリック</b> 選ぶ　<b>矢印をドラッグ</b> 動かす　<b>F</b> 寄る　<b>Ctrl+D</b> 複製　<b>Del</b> 削除　<b>Ctrl+Z</b> 戻す
+      <b>左クリック</b> 選ぶ　<b>Shift+クリック</b> 追加で選ぶ　<b>矢印をドラッグ</b> 動かす　<b>F</b> 寄る　<b>Ctrl+D</b> 複製　<b>Del</b> 削除　<b>Ctrl+Z</b> 戻す　<b>Ctrl+A</b> 全部　<b>Esc</b> 解除
     </div>
     <div id="toast"></div>
   </div>
 
   <div id="right">
     <h2>プロパティ</h2>
-    <div id="props"><div class="empty">部品をクリックすると、ここで数字をいじれます。</div></div>
+    <div id="props"><div class="empty">部品をクリックすると、ここで数字をいじれます。<br><br>Shift を押しながらクリックすると、いくつも選べます。</div></div>
     <div class="note">
       作った形は「コードを出す」で貼り付け用の文になります。<br>
       <code>web/src/models/</code> に置いて、<code>gunmodels.js</code> の
@@ -168,19 +171,34 @@ scene.add(grid);
 const model = new THREE.Group();
 scene.add(model);
 
-// 選んだ部品を囲む枠
-const outline = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
-  new THREE.LineBasicMaterial({ color: 0xffc857 }));
-outline.visible = false;
-scene.add(outline);
+// 選んだ部品を囲む枠。複数選べるので、必要な数だけ使い回します。
+const outlines = new THREE.Group();
+scene.add(outlines);
+const OUTLINE_GEO = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+const OUTLINE_MAT = new THREE.LineBasicMaterial({ color: 0xffc857 });
+function outlineAt(i) {
+  while (outlines.children.length <= i) {
+    outlines.add(new THREE.LineSegments(OUTLINE_GEO, OUTLINE_MAT));
+  }
+  return outlines.children[i];
+}
 
 // ============================================================
 //  部品
 // ============================================================
-let parts = [];      // { mesh, type:'box'|'cyl', color }
-let sel = null;
+let parts = [];        // { mesh, type:'box'|'cyl', color }
+let selection = [];    // 選んでいる部品。Shift クリックで増やせます
 let undo = [];
+
+const isSel = (p) => selection.includes(p);
+const one = () => (selection.length === 1 ? selection[0] : null);
+
+/** 選んでいるもの全部をまとめて囲む箱 */
+function selBounds() {
+  const b = new THREE.Box3();
+  for (const p of selection) b.union(new THREE.Box3().setFromObject(p.mesh));
+  return b;
+}
 
 function makeMesh(type, size, pos, rot, color) {
   const geo = type === 'cyl'
@@ -199,7 +217,7 @@ function addPart(type, size, pos, rot, color, quiet) {
   model.add(mesh);
   const p = { mesh, type, color };
   parts.push(p);
-  if (!quiet) { pushUndo(); select(p); }
+  if (!quiet) { pushUndo(); select(p, false); }
   refreshList();
   return p;
 }
@@ -224,13 +242,13 @@ function snapshot() {
 function restore(list) {
   clearAll();
   for (const d of list) addPart(d.type, d.size, d.pos, d.rot, d.color, true);
-  select(null); refreshList();
+  select(null, false); refreshList();
 }
 function pushUndo() { undo.push(snapshot()); if (undo.length > 60) undo.shift(); }
 
 function clearAll() {
   for (const p of parts) { p.mesh.geometry.dispose(); model.remove(p.mesh); }
-  parts = []; sel = null; outline.visible = false; gizmo.visible = false;
+  parts = []; selection = []; outlines.visible = false; gizmo.visible = false;
 }
 
 // ============================================================
@@ -361,6 +379,8 @@ addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.code === 'KeyD') { duplicate(); e.preventDefault(); }
   if (e.ctrlKey && e.code === 'KeyZ') { doUndo(); e.preventDefault(); }
   if (e.ctrlKey && e.code === 'KeyS') { saveLocal(); e.preventDefault(); }
+  if (e.ctrlKey && e.code === 'KeyA') { selectAll(); e.preventDefault(); }
+  if (e.code === 'Escape') select(null, false);
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); rightDown = midDown = false; });
@@ -384,8 +404,7 @@ function flyStep(dt) {
 
 /** 選んだ部品（なければ全体）に寄る */
 function frame() {
-  const target = sel ? sel.mesh : model;
-  const b = new THREE.Box3().setFromObject(target);
+  const b = selection.length ? selBounds() : new THREE.Box3().setFromObject(model);
   if (b.isEmpty()) return;
   const c = new THREE.Vector3(); b.getCenter(c);
   const s = new THREE.Vector3(); b.getSize(s);
@@ -420,23 +439,31 @@ function onLeftDown(e) {
   }
   // 次に部品
   const hits = ray.intersectObjects(parts.map((p) => p.mesh), false);
-  select(hits.length ? parts.find((p) => p.mesh === hits[0].object) : null);
+  const hitPart = hits.length ? parts.find((p) => p.mesh === hits[0].object) : null;
+  // Shift（Ctrl でも可）を押しながらだと、選択に足していけます
+  select(hitPart, e.shiftKey || e.ctrlKey);
 }
 
 function startDrag(axis, dir) {
-  const origin = sel.mesh.position.clone();
+  const centre = new THREE.Vector3();
+  selBounds().getCenter(centre);
   // 軸を含み、カメラに正対する平面の上で動かす
   const view = camDir();
   const normal = new THREE.Vector3().crossVectors(dir, new THREE.Vector3().crossVectors(view, dir)).normalize();
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, origin);
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, centre);
   const p0 = new THREE.Vector3();
   ray.ray.intersectPlane(plane, p0);
-  drag = { axis, dir: dir.clone(), plane, p0, origin,
-           size0: { ...sel.mesh.userData.size } };
+  // 選んでいる全部について、始めたときの値を覚えておく
+  const start = selection.map((p) => ({
+    p,
+    pos: p.mesh.position.clone(),
+    size: { ...p.mesh.userData.size },
+  }));
+  drag = { axis, dir: dir.clone(), plane, p0, start };
 }
 
 function onDragMove(e) {
-  if (!sel) return;
+  if (!selection.length) return;
   toNdc(e);
   ray.setFromCamera(ndc, camera);
   const p = new THREE.Vector3();
@@ -444,22 +471,38 @@ function onDragMove(e) {
   let amount = p.clone().sub(drag.p0).dot(drag.dir);
   if (snap > 0) amount = Math.round(amount / snap) * snap;
 
-  if (mode === 'move') {
-    sel.mesh.position.copy(drag.origin).addScaledVector(drag.dir, amount);
-  } else {
-    const s = sel.mesh.userData.size;
-    const k = drag.axis;
-    s[k] = Math.max(0.005, drag.size0[k] + amount);
-    if (sel.type === 'cyl' && k === 'x') s.z = s.x;
-    if (sel.type === 'cyl' && k === 'z') s.x = s.z;
-    rebuildGeometry(sel);
+  const k = drag.axis;
+  for (const st of drag.start) {
+    if (mode === 'move') {
+      st.p.mesh.position.copy(st.pos).addScaledVector(drag.dir, amount);
+    } else {
+      const s = st.p.mesh.userData.size;
+      s[k] = Math.max(0.005, st.size[k] + amount);
+      if (st.p.type === 'cyl' && (k === 'x' || k === 'z')) { s.x = s[k]; s.z = s[k]; }
+      rebuildGeometry(st.p);
+    }
   }
   syncProps();
 }
 
-function select(p) {
-  sel = p;
-  outline.visible = gizmo.visible = !!p;
+/**
+ * @param p    選ぶ部品（null なら全部はずす）
+ * @param add  true なら、いま選んでいるものに足す／はずす（Shift クリック）
+ */
+function select(p, add) {
+  if (!p) selection = [];
+  else if (!add) selection = [p];
+  else if (isSel(p)) selection = selection.filter((q) => q !== p);  // もう一度押したらはずす
+  else selection.push(p);
+
+  outlines.visible = gizmo.visible = selection.length > 0;
+  refreshList();
+  syncProps();
+}
+
+function selectAll() {
+  selection = parts.slice();
+  outlines.visible = gizmo.visible = selection.length > 0;
   refreshList();
   syncProps();
 }
@@ -468,19 +511,30 @@ function select(p) {
 //  操作ボタン
 // ============================================================
 function duplicate() {
-  if (!sel) return;
-  const s = sel.mesh;
+  if (!selection.length) return;
   pushUndo();
-  addPart(sel.type, { ...s.userData.size },
-    { x: s.position.x, y: s.position.y, z: s.position.z + 0.05 },
-    { x: s.rotation.x, y: s.rotation.y, z: s.rotation.z }, sel.color);
+  const made = [];
+  for (const q of selection) {
+    const s = q.mesh;
+    made.push(addPart(q.type, { ...s.userData.size },
+      { x: s.position.x, y: s.position.y, z: s.position.z + 0.05 },
+      { x: s.rotation.x, y: s.rotation.y, z: s.rotation.z }, q.color, true));
+  }
+  selection = made;                  // 複製した方を選んだ状態にしておく
+  outlines.visible = gizmo.visible = true;
+  refreshList();
+  syncProps();
+  toast(made.length + ' 個 複製しました');
 }
+
 function removeSel() {
-  if (!sel) return;
+  if (!selection.length) return;
   pushUndo();
-  sel.mesh.geometry.dispose(); model.remove(sel.mesh);
-  parts = parts.filter((p) => p !== sel);
-  select(null);
+  const n = selection.length;
+  for (const q of selection) { q.mesh.geometry.dispose(); model.remove(q.mesh); }
+  parts = parts.filter((p) => !isSel(p));
+  select(null, false);
+  toast(n + ' 個 削除しました');
 }
 function doUndo() {
   if (undo.length < 2) return;
@@ -514,58 +568,124 @@ function refreshList() {
   plist.innerHTML = '';
   parts.forEach((p, i) => {
     const row = document.createElement('div');
-    row.className = 'prow' + (p === sel ? ' on' : '');
+    row.className = 'prow' + (isSel(p) ? ' on' : '');
     const s = p.mesh.userData.size;
     row.innerHTML = `<div class="sw" style="background:${p.color}"></div>` +
       `<div class="nm">${s.x.toFixed(2)}×${s.y.toFixed(2)}×${s.z.toFixed(2)}</div>` +
       `<div class="ty">${p.type === 'cyl' ? '円柱' : '箱'}</div>`;
-    row.onclick = () => select(p);
+    row.onclick = (ev) => select(p, ev.shiftKey || ev.ctrlKey);
     plist.appendChild(row);
   });
 }
 
 const props = document.getElementById('props');
+
+/** 選んでいるもの全部で同じ値なら返す。ばらばらなら null。 */
+function common(get) {
+  if (!selection.length) return null;
+  const first = get(selection[0]);
+  for (const q of selection) if (Math.abs(get(q) - first) > 1e-6) return null;
+  return first;
+}
+
 function syncProps() {
-  if (!sel) {
-    props.innerHTML = '<div class="empty">部品をクリックすると、ここで数字をいじれます。</div>';
+  const n = selection.length;
+  if (n === 0) {
+    props.innerHTML = '<div class="empty">部品をクリックすると、ここで数字をいじれます。' +
+      '<br><br>Shift を押しながらクリックすると、いくつも選べます。</div>';
     return;
   }
-  const m = sel.mesh, s = m.userData.size;
-  const f = (v) => v.toFixed(3);
-  const deg = (r) => (r * 180 / Math.PI).toFixed(1);
-  props.innerHTML = `
-    <div class="fgrp"><div class="flab">位置 (X / Y / Z)</div><div class="frow">
-      <input type="number" step="0.01" id="px" value="${f(m.position.x)}">
-      <input type="number" step="0.01" id="py" value="${f(m.position.y)}">
-      <input type="number" step="0.01" id="pz" value="${f(m.position.z)}"></div></div>
-    <div class="fgrp"><div class="flab">大きさ (X / Y / Z)</div><div class="frow">
-      <input type="number" step="0.01" min="0.005" id="sx" value="${f(s.x)}">
-      <input type="number" step="0.01" min="0.005" id="sy" value="${f(s.y)}">
-      <input type="number" step="0.01" min="0.005" id="sz" value="${f(s.z)}"></div></div>
-    <div class="fgrp"><div class="flab">向き（度）</div><div class="frow">
-      <input type="number" step="1" id="rx" value="${deg(m.rotation.x)}">
-      <input type="number" step="1" id="ry" value="${deg(m.rotation.y)}">
-      <input type="number" step="1" id="rz" value="${deg(m.rotation.z)}"></div></div>
-    <div class="fgrp"><div class="flab">色</div>
-      <input type="color" id="col" value="${sel.color}"></div>`;
 
-  const bind = (id, fn) => {
+  const f = (v) => (v == null ? '' : v.toFixed(3));
+  const fd = (v) => (v == null ? '' : (v * 180 / Math.PI).toFixed(1));
+
+  // 位置は「選んだもの全部の真ん中」を出します。動かすとまとめてずれます。
+  const c = new THREE.Vector3();
+  selBounds().getCenter(c);
+
+  const sx = common((q) => q.mesh.userData.size.x);
+  const sy = common((q) => q.mesh.userData.size.y);
+  const sz = common((q) => q.mesh.userData.size.z);
+  const rx = common((q) => q.mesh.rotation.x);
+  const ry = common((q) => q.mesh.rotation.y);
+  const rz = common((q) => q.mesh.rotation.z);
+  const colSame = selection.every((q) => q.color === selection[0].color);
+
+  const head = n > 1
+    ? `<div class="multi">${n} 個 選択中<span>ばらばらの欄は空です。打つと全部そろいます</span></div>`
+    : '';
+
+  props.innerHTML = head + `
+    <div class="fgrp"><div class="flab">${n > 1 ? '位置（真ん中）' : '位置'} (X / Y / Z)</div><div class="frow">
+      <input type="number" step="0.01" id="px" value="${f(c.x)}">
+      <input type="number" step="0.01" id="py" value="${f(c.y)}">
+      <input type="number" step="0.01" id="pz" value="${f(c.z)}"></div></div>
+    <div class="fgrp"><div class="flab">大きさ (X / Y / Z)</div><div class="frow">
+      <input type="number" step="0.01" min="0.005" id="sx" value="${f(sx)}" placeholder="—">
+      <input type="number" step="0.01" min="0.005" id="sy" value="${f(sy)}" placeholder="—">
+      <input type="number" step="0.01" min="0.005" id="sz" value="${f(sz)}" placeholder="—"></div></div>
+    <div class="fgrp"><div class="flab">向き（度）</div><div class="frow">
+      <input type="number" step="1" id="rx" value="${fd(rx)}" placeholder="—">
+      <input type="number" step="1" id="ry" value="${fd(ry)}" placeholder="—">
+      <input type="number" step="1" id="rz" value="${fd(rz)}" placeholder="—"></div></div>
+    <div class="fgrp"><div class="flab">色${colSame ? '' : '（ばらばら）'}</div>
+      <input type="color" id="col" value="${selection[0].color}"></div>`;
+
+  // --- 位置。真ん中からのズレぶんだけ、全部を動かします ---
+  const bindPos = (id, k) => {
     const el = document.getElementById(id);
-    el.addEventListener('input', () => { fn(parseFloat(el.value) || 0); });
+    el.addEventListener('input', () => {
+      const v = parseFloat(el.value);
+      if (!isFinite(v)) return;
+      const now = new THREE.Vector3();
+      selBounds().getCenter(now);
+      const d = v - now[k];
+      for (const q of selection) q.mesh.position[k] += d;
+    });
     el.addEventListener('change', pushUndo);
   };
-  bind('px', (v) => m.position.x = v); bind('py', (v) => m.position.y = v); bind('pz', (v) => m.position.z = v);
-  bind('sx', (v) => { s.x = Math.max(.005, v); if (sel.type === 'cyl') s.z = s.x; rebuildGeometry(sel); refreshList(); });
-  bind('sy', (v) => { s.y = Math.max(.005, v); rebuildGeometry(sel); refreshList(); });
-  bind('sz', (v) => { s.z = Math.max(.005, v); if (sel.type === 'cyl') s.x = s.z; rebuildGeometry(sel); refreshList(); });
-  bind('rx', (v) => m.rotation.x = v * Math.PI / 180);
-  bind('ry', (v) => m.rotation.y = v * Math.PI / 180);
-  bind('rz', (v) => m.rotation.z = v * Math.PI / 180);
-  const c = document.getElementById('col');
-  c.addEventListener('input', () => {
-    sel.color = c.value; sel.mesh.material = new THREE.MeshLambertMaterial({ color: c.value }); refreshList();
+  bindPos('px', 'x'); bindPos('py', 'y'); bindPos('pz', 'z');
+
+  // --- 大きさ。打った値を全部に入れます ---
+  const bindSize = (id, k) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      const v = parseFloat(el.value);
+      if (!isFinite(v)) return;
+      for (const q of selection) {
+        const sz2 = q.mesh.userData.size;
+        sz2[k] = Math.max(0.005, v);
+        if (q.type === 'cyl' && (k === 'x' || k === 'z')) { sz2.x = sz2[k]; sz2.z = sz2[k]; }
+        rebuildGeometry(q);
+      }
+      refreshList();
+    });
+    el.addEventListener('change', pushUndo);
+  };
+  bindSize('sx', 'x'); bindSize('sy', 'y'); bindSize('sz', 'z');
+
+  // --- 向き ---
+  const bindRot = (id, k) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      const v = parseFloat(el.value);
+      if (!isFinite(v)) return;
+      for (const q of selection) q.mesh.rotation[k] = v * Math.PI / 180;
+    });
+    el.addEventListener('change', pushUndo);
+  };
+  bindRot('rx', 'x'); bindRot('ry', 'y'); bindRot('rz', 'z');
+
+  // --- 色 ---
+  const col = document.getElementById('col');
+  col.addEventListener('input', () => {
+    for (const q of selection) {
+      q.color = col.value;
+      q.mesh.material = new THREE.MeshLambertMaterial({ color: col.value });
+    }
+    refreshList();
   });
-  c.addEventListener('change', pushUndo);
+  col.addEventListener('change', pushUndo);
 }
 
 // ============================================================
@@ -667,15 +787,25 @@ function loop() {
   camera.position.copy(cam.pos);
   camera.lookAt(cam.pos.clone().add(camDir()));
 
-  if (sel) {
-    const b = new THREE.Box3().setFromObject(sel.mesh);
-    const c = new THREE.Vector3(); b.getCenter(c);
-    const s = new THREE.Vector3(); b.getSize(s);
-    outline.position.copy(c);
-    outline.scale.set(Math.max(s.x, .002), Math.max(s.y, .002), Math.max(s.z, .002));
-    gizmo.position.copy(c);
-    // 画面上での大きさを一定に保つ
-    gizmo.scale.setScalar(cam.pos.distanceTo(c) * 0.34);
+  if (selection.length) {
+    // 選んでいる部品それぞれに枠を出す
+    selection.forEach((q, i) => {
+      const b = new THREE.Box3().setFromObject(q.mesh);
+      const c = new THREE.Vector3(); b.getCenter(c);
+      const s = new THREE.Vector3(); b.getSize(s);
+      const o = outlineAt(i);
+      o.visible = true;
+      o.position.copy(c);
+      o.scale.set(Math.max(s.x, .002), Math.max(s.y, .002), Math.max(s.z, .002));
+    });
+    for (let i = selection.length; i < outlines.children.length; i++) {
+      outlines.children[i].visible = false;
+    }
+    // 矢印は、選んだもの全部の真ん中に置く
+    const cc = new THREE.Vector3();
+    selBounds().getCenter(cc);
+    gizmo.position.copy(cc);
+    gizmo.scale.setScalar(cam.pos.distanceTo(cc) * 0.34);   // 画面上の大きさを一定に
   }
 
   renderer.render(scene, camera);
