@@ -93,7 +93,10 @@ export class Player {
     const grounded = b.onGround || b.groundCheck();
 
     // --- スライディングを始める ---
-    const wantSlide = input.slide && input.sprint;
+    // Ctrl だけで滑れる（画面のヒントもそう書いてある）。
+    // ただし歩く以上の速さが要る。棒立ちからいきなり滑るのは不自然なので。
+    const speedNow = Math.hypot(b.vel.x, b.vel.z);
+    const wantSlide = input.slide && speedNow >= c.slideMinSpeed;
     if (wantSlide && grounded && this.state !== State.SLIDE && this.slideCooldown <= 0) {
       const f = this.flatForward;
       const r = this.flatRight;

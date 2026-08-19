@@ -11,6 +11,7 @@ export const MOVEMENT = {
   slideSpeed: 54,
   slideDuration: 1.2,
   slideCooldown: 0.85,
+  slideMinSpeed: 13,       // これより遅いと滑り出せない（元の SlideMinSpeed）
   slideJumpBoost: 1.0,
   slideEyeDrop: -1.7,      // スライディング中は視点が下がる
   gravity: 110,
