@@ -10,7 +10,7 @@
 
 import * as THREE from '../lib/three.module.js';
 import { Body, hasLineOfSight } from './physics.js';
-import { MOVEMENT } from './config.js';
+import { MOVEMENT, BOTS } from './config.js';
 import { WeaponState } from './combat.js';
 
 const TEAM_HEX = { red: 0xff4e60, blue: 0x46a0ff };
@@ -65,6 +65,8 @@ export class Bot {
 
     this.weapon = new WeaponState(weaponName);
     this.skill = skill;                 // 1 が標準。上げるほど強い
+    this.burstLeft = 0;                 // あと何発で指を離すか
+    this.pauseUntil = 0;                // 休んでいる間
     this.reactAt = 0;                   // 敵を見つけてから撃ち始めるまで
     this.target = null;
     this.strafe = Math.random() < 0.5 ? 1 : -1;
@@ -125,7 +127,7 @@ export class Bot {
       if (f === this || !f.alive || f.team === this.team) continue;
       const p = f.body.pos;
       const d = Math.hypot(p.x - eye.x, p.z - eye.z);
-      if (d > this.weapon.def.range) continue;
+      if (d > Math.min(this.weapon.def.range, BOTS.maxEngageRange)) continue;
       const targetEye = { x: p.x, y: p.y + 4.0, z: p.z };
       if (!hasLineOfSight(this.world, eye, targetEye)) continue;
       if (d < bestDist) { bestDist = d; best = f; }
@@ -133,7 +135,10 @@ export class Bot {
 
     if (best && best !== this.target) {
       // 見つけた瞬間はすぐ撃たない。人間らしい反応の遅れ。
-      this.reactAt = now + (0.34 / this.skill) * (0.6 + Math.random() * 0.8);
+      const j = BOTS.reactionJitterMin
+        + Math.random() * (BOTS.reactionJitterMax - BOTS.reactionJitterMin);
+      this.reactAt = now + (BOTS.reactionBase / this.skill) * j;
+      this.burstLeft = 0;
     }
     this.target = best;
 
@@ -168,10 +173,21 @@ export class Bot {
           }
         } else if (this.weapon.ammo <= 0) {
           this.weapon.startReload(now);
-        } else if (this.weapon.canFire(now)) {
+        } else if (now >= this.pauseUntil && this.weapon.canFire(now)) {
+          // ずっと撃ちっぱなしだと強すぎるので、何発かごとに指を離す
+          if (this.burstLeft <= 0) {
+            this.burstLeft = BOTS.burstMin
+              + Math.floor(Math.random() * (BOTS.burstMax - BOTS.burstMin + 1));
+          }
+          this.burstLeft -= 1;
+          if (this.burstLeft <= 0) {
+            this.pauseUntil = now + BOTS.burstPauseMin
+              + Math.random() * (BOTS.burstPauseMax - BOTS.burstPauseMin);
+          }
+
           this.weapon.consume(now);
-          // 狙いをわざと少しずらす。遠いほど大きく外す。
-          const err = (0.026 / this.skill) * (1 + dist / 140);
+          // 狙いをわざとずらす。遠いほど大きく外す。
+          const err = (BOTS.aimError / this.skill) * (1 + dist / BOTS.aimErrorRange);
           const aim = {
             x: p.x + (Math.random() - 0.5) * dist * err * 2,
             y: p.y + 3.4 + (Math.random() - 0.5) * dist * err,

@@ -9,10 +9,11 @@ import { Arena, setupLighting } from './arena.js';
 import { Player, State } from './player.js';
 import { Bot, createCharacter } from './bots.js';
 import { Input } from './input.js';
+import { buildGunMesh, muzzleOf } from './gunmodels.js';
 import { Hud } from './hud.js';
 import { Effects } from './effects.js';
 import {
-  MOVEMENT, WEAPONS, GRENADES, MATCH, BASE_FOV,
+  MOVEMENT, WEAPONS, GRENADES, MATCH, BASE_FOV, BOTS,
   LOADOUT_CHOICES, BOT_NAMES,
 } from './config.js';
 import { WeaponState, spreadDegrees, scatter, fireRay, meleeHit, explode } from './combat.js';
@@ -85,53 +86,26 @@ viewmodel.scale.setScalar(0.3);   // 銃はスタッド単位。そのままだ�
 camera.add(viewmodel);
 scene.add(camera);
 
-function buildGunMesh(def) {
-  const g = new THREE.Group();
-  const bodyMat = new THREE.MeshLambertMaterial({ color: def.body ?? 0x30343c });
-  const accMat = new THREE.MeshLambertMaterial({ color: def.accent ?? 0xffaa3c });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x1a1c21 });
-
-  const add = (w, h, d, x, y, z, m) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-    mesh.position.set(x, y, z);
-    g.add(mesh);
-    return mesh;
-  };
-
-  const L = def.length || 3;
-  if (def.melee) {
-    // 刃は「上向き」。銃みたいに前を向かないように。
-    add(0.16, L, 0.5, 0, L / 2, 0, accMat);
-    add(0.3, 0.7, 0.3, 0, -0.1, 0, dark);      // 柄
-    add(0.7, 0.16, 0.4, 0, 0.28, 0, dark);     // つば
-  } else {
-    add(0.42, 0.5, L, 0, 0, -L / 2 + 0.5, bodyMat);        // 本体
-    add(0.26, 0.26, L * 0.5, 0, 0.06, -L * 0.9, dark);     // 銃身
-    add(0.34, 0.62, 0.5, 0, -0.5, 0.2, dark);              // グリップ
-    add(0.3, 0.2, 0.7, 0, 0.34, -L * 0.35, accMat);        // 上のパーツ
-    if (def.scope) {
-      add(0.34, 0.34, 1.5, 0, 0.5, -L * 0.4, dark);
-      add(0.44, 0.44, 0.18, 0, 0.5, -L * 0.4 - 0.8, accMat);
-    }
-  }
-  return g;
-}
-
 let gunMesh = null;
 let muzzleLocal = new THREE.Vector3(0, 0.06, -3);
+const VM_SCALE = 0.3;
+const ADS = new THREE.Vector3(0, 0, -0.85);   // refreshViewmodel で高さを入れ直す
 
 function refreshViewmodel() {
   if (gunMesh) viewmodel.remove(gunMesh);
   const def = weapon().def;
   gunMesh = buildGunMesh(def);
   viewmodel.add(gunMesh);
-  muzzleLocal = new THREE.Vector3(0, 0.06, -(def.length || 3) * 1.15);
+  muzzleLocal = muzzleOf(def, gunMesh);
+
+  // 照準器がちょうど画面の中心に来る高さへ下げる。
+  // こうすると「覗いた先＝弾の飛ぶ先」が一致します。
+  ADS.set(0, -(gunMesh.userData.sightY || 0.46) * VM_SCALE, def.scope ? -0.7 : -0.62);
 }
 refreshViewmodel();
 
 // 画面のどこに銃を置くか。腰だめ / 構え / スライディング。
 const HIP = new THREE.Vector3(0.62, -0.52, -1.15);
-const ADS = new THREE.Vector3(0.0, -0.30, -0.85);
 const SLIDE_POSE = new THREE.Vector3(0.5, -0.75, -1.0);
 const vmPos = HIP.clone();
 let vmRecoil = 0;
@@ -162,7 +136,7 @@ function makeBots() {
       const w = Math.random() < 0.7
         ? pick(LOADOUT_CHOICES.primary)
         : pick(LOADOUT_CHOICES.secondary);
-      bots.push(new Bot(scene, world, arena, BOT_NAMES[n++ % BOT_NAMES.length], team, w, 1));
+      bots.push(new Bot(scene, world, arena, BOT_NAMES[n++ % BOT_NAMES.length], team, w, BOTS.skill));
     }
   }
   fighters = [player, ...bots];

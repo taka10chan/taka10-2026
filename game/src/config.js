@@ -35,6 +35,29 @@ export const HITBOX = {
   head: { w: 3.0, h: 2.2, d: 3.0, bottom: 4.1 },   //  4.1 〜 6.3
 };
 
+/**
+ * ボットの強さ。ここだけいじれば調整できます。
+ * skill を上げるほど強くなります（1.0 が元の強さ）。
+ */
+export const BOTS = {
+  skill: 0.8,
+
+  reactionBase: 0.55,      // 見つけてから撃ち始めるまで（秒）。大きいほど弱い
+  reactionJitterMin: 0.7,  // その何倍か（下限）
+  reactionJitterMax: 1.7,  // その何倍か（上限）
+
+  aimError: 0.048,         // 狙いのズレ。大きいほど当たらない
+  aimErrorRange: 90,       // 何スタッドごとにズレが倍になるか。小さいほど遠距離が下手
+
+  burstMin: 3,             // 何発か撃ったら、いったん指を離す
+  burstMax: 7,
+  burstPauseMin: 0.30,     // その休みの長さ（秒）
+  burstPauseMax: 0.85,
+
+  maxEngageRange: 200,     // これより遠い相手は狙わない（武器の射程より優先）
+  loseTargetTime: 0.6,     // 見失ってから狙いをやめるまで
+};
+
 export const MATCH = {
   scoreToWin: 5,
   countdownTime: 3,

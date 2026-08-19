@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gun Arena モデルビューア</title>
+<style>
+  :root {
+    --bg:      #0d1319;
+    --panel:   #151e27;
+    --panel2:  #1d2833;
+    --line:    #2b3945;
+    --ink:     #e7eef5;
+    --muted:   #8c9baa;
+    --accent:  #ffc857;
+    --mono: ui-monospace, SFMono-Regular, Consolas, 'BIZ UDGothic', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  #app { display: flex; height: 100%; }
+
+  /* ---------- 左：モデルの一覧 ---------- */
+  #side {
+    width: 232px; flex: none; overflow-y: auto;
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 14px 12px 24px;
+  }
+  #side h1 {
+    font-size: 0.95rem; margin: 4px 0 2px; letter-spacing: 0.04em;
+  }
+  #side .sub {
+    font-family: var(--mono); font-size: 0.66rem; color: var(--muted);
+    letter-spacing: 0.1em; margin-bottom: 16px;
+  }
+  .grp {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.14em;
+    color: var(--accent); margin: 16px 0 6px;
+  }
+  .item {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    padding: 7px 10px; margin-bottom: 3px; border-radius: 6px;
+    border: 1px solid transparent; background: none;
+    color: var(--ink); font: inherit; font-size: 0.86rem;
+  }
+  .item:hover { background: var(--panel2); }
+  .item.on { background: var(--panel2); border-color: var(--accent); color: var(--accent); }
+  .item small { display: block; color: var(--muted); font-size: 0.68rem; margin-top: 1px; }
+  .item.on small { color: #b9975a; }
+
+  /* ---------- 中央：3D ---------- */
+  #stage { position: relative; flex: 1; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  #hint {
+    position: absolute; left: 14px; bottom: 12px;
+    font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+    line-height: 1.9; pointer-events: none;
+  }
+  #hint b { color: #b8c6d4; font-weight: 500; }
+
+  #tools {
+    position: absolute; right: 14px; top: 12px;
+    display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
+  }
+  .tool {
+    cursor: pointer; padding: 6px 11px; border-radius: 6px;
+    border: 1px solid var(--line); background: rgba(21,30,39,0.9);
+    color: var(--muted); font: inherit; font-size: 0.76rem;
+  }
+  .tool:hover { color: var(--ink); }
+  .tool.on { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- 右：部品の中身 ---------- */
+  #info {
+    width: 296px; flex: none; overflow-y: auto;
+    background: var(--panel); border-left: 1px solid var(--line);
+    padding: 14px 12px 28px;
+  }
+  #info h2 {
+    font-size: 1.05rem; margin: 2px 0 10px;
+  }
+  .stats {
+    display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
+    font-family: var(--mono); font-size: 0.72rem; margin-bottom: 16px;
+  }
+  .stats dt { color: var(--muted); }
+  .stats dd { margin: 0; color: var(--ink); }
+
+  .parts { font-family: var(--mono); font-size: 0.66rem; line-height: 1.65; }
+  .parts .row {
+    display: grid; grid-template-columns: 14px 1fr; gap: 6px;
+    padding: 3px 5px; border-radius: 4px; cursor: pointer;
+  }
+  .parts .row:hover { background: var(--panel2); }
+  .parts .row.on { background: #33291a; }
+  .sw { width: 11px; height: 11px; border-radius: 2px; margin-top: 3px; }
+  .parts .d { color: var(--muted); }
+
+  .note {
+    margin-top: 20px; padding: 11px 12px; border-radius: 6px;
+    background: var(--panel2); border-left: 3px solid var(--accent);
+    font-size: 0.75rem; line-height: 1.85; color: #b9c6d3;
+  }
+  .note b { color: var(--accent); font-weight: 600; }
+  .note code {
+    font-family: var(--mono); font-size: 0.92em;
+    background: #0d1319; padding: 1px 4px; border-radius: 3px;
+  }
+
+  @media (max-width: 900px) {
+    #info { display: none; }
+    #side { width: 170px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <h1>モデルビューア</h1>
+    <div class="sub">GUN ARENA</div>
+    <a href="index.html" style="display:block;margin:-8px 0 14px;color:#8c9baa;
+       font-size:0.78rem;text-decoration:none">← ゲームに戻る</a>
+    <div id="list"></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="tools">
+      <button class="tool on" data-t="spin">自動で回す</button>
+      <button class="tool on" data-t="grid">グリッド</button>
+      <button class="tool" data-t="wire">ワイヤーフレーム</button>
+      <button class="tool" data-t="axis">前後の向き</button>
+      <button class="tool" data-t="sight">照準の高さ</button>
+    </div>
+    <div id="hint">
+      <b>ドラッグ</b> 回す　<b>ホイール</b> 拡大　<b>右ドラッグ</b> ずらす　<b>ダブルクリック</b> 元に戻す
+    </div>
+  </div>
+
+  <div id="info">
+    <h2 id="title">—</h2>
+    <dl class="stats" id="stats"></dl>
+    <div class="parts" id="parts"></div>
+    <div class="note">
+      <b>自分で作るには</b><br>
+      <code>web/src/models/</code> に <code>なまえ.js</code> を作って、
+      <code>export function build()</code> で <code>THREE.Group</code> を返すだけです。<br><br>
+      銃口は <code>-Z</code> の向き、上が <code>+Y</code>、右が <code>+X</code>。
+      1 は 1 スタッド（約 28cm）です。<br><br>
+      作ったら <code>src/gunmodels.js</code> の <code>BUILDERS</code> に足すと、
+      ゲームでも使えます。
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from './lib/three.module.js';
+import { WEAPONS } from './src/config.js';
+import { buildGunMesh } from './src/gunmodels.js';
+import { createCharacter } from './src/bots.js';
+
+// ============================================================
+//  下ごしらえ
+// ============================================================
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1319);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.15));
+const key = new THREE.DirectionalLight(0xfff4e2, 1.7); key.position.set(4, 7, 6); scene.add(key);
+const fill = new THREE.DirectionalLight(0x9fc4e8, 0.75); fill.position.set(-6, 2, -5); scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 0.5); rim.position.set(0, -4, -6); scene.add(rim);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 200);
+
+const grid = new THREE.GridHelper(8, 32, 0x3a5060, 0x22303c);
+scene.add(grid);
+
+// 前後の向きが分かる矢印（-Z が銃口の向き）
+const axis = new THREE.Group();
+{
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 2.4, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff5a5a }));
+  shaft.rotation.x = Math.PI / 2; shaft.position.z = -1.2;
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff5a5a }));
+  head.rotation.x = -Math.PI / 2; head.position.z = -2.45;
+  axis.add(shaft, head);
+  axis.visible = false;
+  scene.add(axis);
+}
+
+// 照準の高さを示す線
+const sightLine = new THREE.Mesh(
+  new THREE.BoxGeometry(0.006, 0.006, 6),
+  new THREE.MeshBasicMaterial({ color: 0xffc857 }));
+sightLine.visible = false;
+scene.add(sightLine);
+
+const holder = new THREE.Group();
+scene.add(holder);
+
+// ============================================================
+//  カメラ操作（自前の簡単なもの。ライブラリは足しません）
+// ============================================================
+
+const cam = { yaw: -0.72, pitch: 0.42, dist: 5, tx: 0, ty: 0, tz: 0 };
+const home = { ...cam };
+let dragging = 0;
+
+canvas.addEventListener('mousedown', (e) => { dragging = e.button === 2 ? 2 : 1; e.preventDefault(); });
+addEventListener('mouseup', () => { dragging = 0; });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  if (dragging === 1) {
+    cam.yaw -= e.movementX * 0.007;
+    cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch - e.movementY * 0.007));
+    spin = false; syncTools();
+  } else {
+    const s = cam.dist * 0.0016;
+    cam.tx -= (Math.cos(cam.yaw) * e.movementX) * s;
+    cam.tz += (Math.sin(cam.yaw) * e.movementX) * s;
+    cam.ty += e.movementY * s;
+  }
+});
+canvas.addEventListener('wheel', (e) => {
+  cam.dist = Math.max(0.25, Math.min(40, cam.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('dblclick', () => { Object.assign(cam, home); frameModel(); });
+
+// 指でも回せるように
+let touchLast = null;
+canvas.addEventListener('touchstart', (e) => { touchLast = e.touches[0]; }, { passive: true });
+canvas.addEventListener('touchmove', (e) => {
+  if (!touchLast) return;
+  const t = e.touches[0];
+  cam.yaw -= (t.clientX - touchLast.clientX) * 0.008;
+  cam.pitch = Math.max(-1.45, Math.min(1.45, cam.pitch - (t.clientY - touchLast.clientY) * 0.008));
+  touchLast = t; spin = false; syncTools();
+}, { passive: true });
+
+// ============================================================
+//  モデルの一覧
+// ============================================================
+
+const GROUPS = [
+  { label: '実銃モデル', keys: ['AR', 'Pistol', 'Sniper'] },
+  { label: 'そのほかの銃', keys: ['SMG', 'Shotgun', 'Marksman', 'LMG', 'Revolver', 'MachinePistol'] },
+  { label: '近接', keys: ['Knife', 'Katana', 'Scythe'] },
+  { label: 'キャラクター', keys: ['CharRed', 'CharBlue'] },
+];
+
+const REAL_NAME = {
+  AR: 'ステアー AUG', Pistol: 'グロック 18C', Sniper: 'AWM',
+  CharRed: '赤チーム', CharBlue: '青チーム',
+};
+
+const listEl = document.getElementById('list');
+let current = null;
+
+for (const g of GROUPS) {
+  const h = document.createElement('div');
+  h.className = 'grp'; h.textContent = g.label;
+  listEl.appendChild(h);
+  for (const k of g.keys) {
+    const b = document.createElement('button');
+    b.className = 'item';
+    b.dataset.key = k;
+    const def = WEAPONS[k];
+    b.innerHTML = (def ? def.display : (k === 'CharRed' ? '赤チーム' : '青チーム')) +
+      (REAL_NAME[k] ? `<small>${REAL_NAME[k]}</small>` : '');
+    b.addEventListener('click', () => show(k));
+    listEl.appendChild(b);
+  }
+}
+
+function makeModel(key) {
+  if (key === 'CharRed') return createCharacter(0xff4e60, false);
+  if (key === 'CharBlue') return createCharacter(0x46a0ff, true);
+  return buildGunMesh(WEAPONS[key]);
+}
+
+// ============================================================
+//  表示する
+// ============================================================
+
+let parts = [];
+let picked = -1;
+
+function show(key) {
+  current = key;
+  for (const el of listEl.querySelectorAll('.item')) el.classList.toggle('on', el.dataset.key === key);
+
+  holder.clear();
+  const m = makeModel(key);
+  holder.add(m);
+
+  // 部品を集める
+  parts = [];
+  m.traverse((o) => { if (o.isMesh) parts.push(o); });
+  for (const p of parts) {
+    p.userData.baseMat = p.material;
+    p.userData.wireMat = new THREE.MeshBasicMaterial({
+      color: 0x8fb4cc, wireframe: true, transparent: true, opacity: 0.55 });
+  }
+  picked = -1;
+
+  const box = new THREE.Box3().setFromObject(m);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const centre = new THREE.Vector3(); box.getCenter(centre);
+  holder.userData = { size, centre, sightY: m.userData.sightY ?? null };
+
+  sightLine.position.set(centre.x, m.userData.sightY ?? 0, centre.z);
+
+  frameModel();
+  applyWire();
+  renderInfo(key, size, m.userData);
+}
+
+function frameModel() {
+  const s = holder.userData.size;
+  if (!s) return;
+  cam.dist = Math.max(s.x, s.y, s.z) * 1.85 + 0.4;
+  const c = holder.userData.centre;
+  cam.tx = c.x; cam.ty = c.y; cam.tz = c.z;
+}
+
+function renderInfo(key, size, ud) {
+  const def = WEAPONS[key];
+  document.getElementById('title').textContent =
+    (def ? def.display : (key === 'CharRed' ? '赤チーム' : '青チーム')) +
+    (REAL_NAME[key] ? `　（${REAL_NAME[key]}）` : '');
+
+  const cm = (u) => (u * 28).toFixed(0) + 'cm';
+  const rows = [
+    ['部品の数', parts.length + ' 個'],
+    ['長さ (Z)', size.z.toFixed(2) + '　' + cm(size.z)],
+    ['高さ (Y)', size.y.toFixed(2) + '　' + cm(size.y)],
+    ['幅 (X)',  size.x.toFixed(2) + '　' + cm(size.x)],
+  ];
+  if (ud.sightY != null && ud.sightY !== 0) rows.push(['照準の高さ', ud.sightY.toFixed(3)]);
+  if (ud.muzzle) rows.push(['銃口', `${ud.muzzle.x.toFixed(2)}, ${ud.muzzle.y.toFixed(2)}, ${ud.muzzle.z.toFixed(2)}`]);
+  if (def) {
+    rows.push(['ダメージ', String(def.damage)]);
+    rows.push(['連射', def.rate + ' 発/秒']);
+    if (def.mag) rows.push(['装弾数', String(def.mag)]);
+  }
+  document.getElementById('stats').innerHTML =
+    rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+
+  // 部品リスト。クリックするとその部品だけ光ります。
+  const el = document.getElementById('parts');
+  el.innerHTML = '';
+  parts.forEach((p, i) => {
+    const g = p.geometry.parameters || {};
+    const dim = g.width != null
+      ? `${g.width.toFixed(2)} × ${g.height.toFixed(2)} × ${g.depth.toFixed(2)}`
+      : `円柱 r${(g.radiusTop ?? 0).toFixed(2)} 長さ${(g.height ?? 0).toFixed(2)}`;
+    const col = '#' + p.userData.baseMat.color.getHexString();
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<div class="sw" style="background:${col}"></div>` +
+      `<div>${dim}<div class="d">位置 ${p.position.x.toFixed(2)}, ${p.position.y.toFixed(2)}, ${p.position.z.toFixed(2)}</div></div>`;
+    row.addEventListener('click', () => pick(i));
+    el.appendChild(row);
+  });
+}
+
+function pick(i) {
+  picked = picked === i ? -1 : i;
+  const rows = document.getElementById('parts').children;
+  for (let k = 0; k < rows.length; k++) rows[k].classList.toggle('on', k === picked);
+  applyWire();
+}
+
+// ============================================================
+//  ボタン
+// ============================================================
+
+let spin = new URLSearchParams(location.search).get('spin') !== '0', wire = false;
+const HILITE = new THREE.MeshBasicMaterial({ color: 0xffc857 });
+
+function applyWire() {
+  parts.forEach((p, i) => {
+    if (i === picked) p.material = HILITE;
+    else p.material = wire ? p.userData.wireMat : p.userData.baseMat;
+  });
+}
+
+function syncTools() {
+  for (const b of document.querySelectorAll('.tool')) {
+    const t = b.dataset.t;
+    const on = t === 'spin' ? spin : t === 'grid' ? grid.visible
+      : t === 'wire' ? wire : t === 'axis' ? axis.visible : sightLine.visible;
+    b.classList.toggle('on', on);
+  }
+}
+
+for (const b of document.querySelectorAll('.tool')) {
+  b.addEventListener('click', () => {
+    const t = b.dataset.t;
+    if (t === 'spin') spin = !spin;
+    if (t === 'grid') grid.visible = !grid.visible;
+    if (t === 'wire') { wire = !wire; applyWire(); }
+    if (t === 'axis') axis.visible = !axis.visible;
+    if (t === 'sight') sightLine.visible = !sightLine.visible;
+    syncTools();
+  });
+}
+
+// ============================================================
+//  毎フレーム
+// ============================================================
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / Math.max(1, r.height);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+let t0 = performance.now();
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - t0) / 1000);
+  t0 = now;
+
+  if (spin) cam.yaw += dt * 0.42;
+
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  camera.position.set(
+    cam.tx + Math.sin(cam.yaw) * cp * cam.dist,
+    cam.ty + sp * cam.dist,
+    cam.tz + Math.cos(cam.yaw) * cp * cam.dist);
+  camera.lookAt(cam.tx, cam.ty, cam.tz);
+
+  renderer.render(scene, camera);
+}
+
+resize();
+show(new URLSearchParams(location.search).get('m') || 'AR');
+syncTools();
+loop();
+</script>
+</body>
+</html>
