@@ -114,6 +114,38 @@
   }
   .byline b { font-weight: 500; color: var(--ink-soft); }
 
+  /* ---------- 遊びに行くボタン ---------- */
+
+  .play {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-top: 2.4rem;
+    padding: 0.85rem 1.6rem;
+    border: 1.5px solid var(--accent);
+    border-radius: 999px;
+    color: var(--accent);
+    background: none;
+    text-decoration: none;
+    font-family: var(--sans);
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s;
+  }
+  .play:hover,
+  .play:focus-visible {
+    background: var(--accent);
+    color: var(--ground);
+  }
+  .play .tri { font-size: 0.75em; }
+  .play .sub {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    opacity: 0.75;
+  }
+
   /* ---------- ターミナル ---------- */
 
   .terminal {
@@ -330,6 +362,45 @@
     line-height: 1.7;
   }
 
+  /* ---------- 言い方くらべ ---------- */
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 2.4rem 0;
+  }
+  @media (min-width: 700px) { .compare { grid-template-columns: 1fr 1fr; } }
+  .compare > div { background: var(--surface); padding: 1.5rem 1.4rem; }
+  .compare .tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 0.9rem;
+  }
+  .compare q {
+    font-family: var(--serif);
+    font-size: 1.02rem;
+    line-height: 1.95;
+    color: var(--ink);
+    display: block;
+    margin-bottom: 1rem;
+  }
+  .compare .res {
+    font-size: 0.86rem;
+    line-height: 1.8;
+    color: var(--muted);
+    display: block;
+  }
+  .compare .ng .tag { color: var(--muted); }
+  .compare .ok .tag { color: var(--accent); }
+
   /* ---------- 締め ---------- */
 
   .closing {
@@ -397,7 +468,7 @@
     .big { font-size: 12pt; }
 
     /* 写真や表が、ページの切れ目でまっぷたつにならないように */
-    figure, .figures, .pair { break-inside: avoid; page-break-inside: avoid; }
+    figure, .figures, .pair, .compare { break-inside: avoid; page-break-inside: avoid; }
 
     /* 背景が出ないぶん、枠線と太字で見せる */
     .terminal { border: 1px solid #999; padding: 1rem 1.1rem; }
@@ -406,6 +477,20 @@
     .terminal .ask { font-weight: bold; }
 
     em.mark { background: none; border-bottom: 2px solid #000; }
+    /* 紙ではボタンを押せないので、URL を文字で出す */
+    .play {
+      border: 1px solid #000;
+      border-radius: 0;
+      padding: 0.5rem 0.9rem;
+      margin-top: 1.4rem;
+      font-size: 10pt;
+    }
+    .play .sub { display: none; }
+    .play::after {
+      content: "  " attr(href);
+      font-family: var(--mono);
+      font-size: 9pt;
+    }
     code { background: none; border: 1px solid #999; }
 
     .figures { grid-template-columns: repeat(4, 1fr); gap: 0; margin: 1.6rem 0 0.8rem; }
@@ -436,6 +521,12 @@
       <span><b>作ったもの</b> Gun Arena（公開ずみ）</span>
       <span><b>自分でやったこと</b> 企画・アニメーション・マップ・テスト・調整</span>
     </p>
+
+    <a class="play" href="https://www.roblox.com/games/127233164348257/">
+      <span class="tri">▶</span>
+      実際に遊んでみる
+      <span class="sub">Roblox</span>
+    </a>
   </header>
 
   <!-- ============================== 一 ============================== -->
@@ -618,6 +709,63 @@
   </section>
 
   <!-- ============================== 七 ============================== -->
+  <section>
+    <div class="head">
+      <span class="kanji">七</span>
+      <h2>わかったこと</h2>
+    </div>
+
+    <div class="prose">
+      <p class="big">
+        AI を使いこなすには、<em class="mark">国語力が必要</em>だということが
+        分かりました。
+      </p>
+
+      <p>
+        やってみて一番おどろいたのが、これです。
+        同じことを直してほしくても、<strong>言い方でまったく結果が変わります</strong>。
+        スライディングを直してもらったときが、そうでした。
+      </p>
+    </div>
+
+    <div class="compare">
+      <div class="ng">
+        <span class="tag">ざっくり言うと</span>
+        <q>スライディングを直して</q>
+        <span class="res">何をどう直すのか分からないので、
+          こっちが思っていたのとちがう所を直されました。</span>
+      </div>
+      <div class="ok">
+        <span class="tag">はっきり言うと</span>
+        <q>スライディングは、地面のところでやって、
+          途中から地面のないところに行っても継続して。
+          それで地面についたら、キャンセルして。</q>
+        <span class="res">どういう順番で、どうなったら終わりなのかを書いたら、
+          一回で思い通りになりました。</span>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        右の言い方は、<strong>写真1 に写っているもの</strong>です。
+        自分でも長いなと思いましたが、これくらい書いた方が早いと気づきました。
+      </p>
+
+      <p>
+        AI は、こっちの頭の中を読んでくれません。
+        <em class="mark">自分が何をしてほしいのかを、順番に、はっきり言葉にできないと動かない</em>のです。
+        ぼんやり頼むと、ぼんやりしたものが返ってきます。
+      </p>
+
+      <p class="big" style="margin-top:2.4rem">
+        つまり、AI を使うのに必要なのは、
+        プログラミングの力より<strong>国語の力</strong>でした。
+        これが、今回いちばんの発見です。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================== 八 ============================== -->
   <div class="closing">
     <p>興味を持ってくれましたか？</p>
     <p class="aside">
