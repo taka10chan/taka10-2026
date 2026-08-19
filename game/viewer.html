@@ -55,7 +55,9 @@
 
   /* ---------- 中央：3D ---------- */
   #stage { position: relative; flex: 1; min-width: 0; }
-  canvas { display: block; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%;
+           /* ブラウザが canvas を画像とみなして掴んでしまうのを止める */
+           -webkit-user-drag: none; user-select: none; touch-action: none; }
 
   #hint {
     position: absolute; left: 14px; bottom: 12px;
@@ -132,7 +134,7 @@
   </div>
 
   <div id="stage">
-    <canvas id="c"></canvas>
+    <canvas id="c" draggable="false"></canvas>
     <div id="tools">
       <button class="tool on" data-t="spin">自動で回す</button>
       <button class="tool on" data-t="grid">グリッド</button>
@@ -223,6 +225,9 @@ let dragging = 0;
 canvas.addEventListener('mousedown', (e) => { dragging = e.button === 2 ? 2 : 1; e.preventDefault(); });
 addEventListener('mouseup', () => { dragging = 0; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// 左ドラッグでブラウザの「画像をドラッグ」が始まると、一瞬操作を奪われる。
+canvas.addEventListener('dragstart', (e) => e.preventDefault());
+canvas.addEventListener('selectstart', (e) => e.preventDefault());
 addEventListener('mousemove', (e) => {
   if (!dragging) return;
   if (dragging === 1) {

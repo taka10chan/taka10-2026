@@ -37,7 +37,9 @@
 
   /* ---------- 中央 ---------- */
   #stage { position: relative; flex: 1; min-width: 0; }
-  canvas { display: block; width: 100%; height: 100%; }
+  canvas { display: block; width: 100%; height: 100%;
+           /* ブラウザが canvas を画像とみなして掴んでしまうのを止める */
+           -webkit-user-drag: none; user-select: none; touch-action: none; }
 
   #bar { position: absolute; left: 12px; top: 10px; display: flex; gap: 5px; flex-wrap: wrap; max-width: calc(100% - 24px); }
   .btn { cursor: pointer; padding: 6px 11px; border-radius: 6px; border: 1px solid var(--line);
@@ -100,12 +102,13 @@
   </div>
 
   <div id="stage">
-    <canvas id="c"></canvas>
+    <canvas id="c" draggable="false"></canvas>
     <div id="bar">
       <select id="load" class="btn" style="padding:6px 8px"></select>
       <div class="sep"></div>
       <button class="btn on" id="tMove">移動</button>
       <button class="btn" id="tScale">大きさ</button>
+      <button class="btn" id="tRot">回転</button>
       <div class="sep"></div>
       <button class="btn" id="addBox">＋箱</button>
       <button class="btn" id="addCyl">＋円柱</button>
@@ -113,14 +116,14 @@
       <button class="btn red" id="del">削除</button>
       <div class="sep"></div>
       <button class="btn on" id="grid">グリッド</button>
-      <button class="btn" id="snapBtn">0.01きざみ</button>
+      <button class="btn" id="snapBtn">0.01 / 15°きざみ</button>
       <div class="sep"></div>
       <button class="btn" id="exp">コードを出す</button>
       <button class="btn" id="save">保存</button>
     </div>
     <div id="help">
       <b>右ドラッグ</b> 見回す　<b>右+WASD/QE</b> 飛ぶ　<b>中ドラッグ</b> 平行移動　<b>ホイール</b> 前後<br>
-      <b>左クリック</b> 選ぶ　<b>Shift+クリック</b> 追加で選ぶ　<b>矢印をドラッグ</b> 動かす　<b>F</b> 寄る　<b>Ctrl+D</b> 複製　<b>Del</b> 削除　<b>Ctrl+Z</b> 戻す　<b>Ctrl+A</b> 全部　<b>Esc</b> 解除
+      <b>左クリック</b> 選ぶ　<b>Shift+クリック</b> 追加で選ぶ　<b>矢印/輪をドラッグ</b> 動かす・回す　<b>F</b> 寄る　<b>Ctrl+D</b> 複製　<b>Del</b> 削除　<b>Ctrl+Z</b> 戻す　<b>Ctrl+A</b> 全部　<b>Esc</b> 解除　<b>G/T/R</b> 移動/大きさ/回転
     </div>
     <div id="toast"></div>
   </div>
@@ -304,15 +307,26 @@ for (const a of AXES) {
   tip.position.y = 0.70;
   const cube = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.10), mat);
   cube.position.y = 0.68; cube.visible = false;
+
+  // 回転用の輪っか。その軸のまわりを回します。
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.60, 0.014, 8, 48), mat);
+  ring.rotation.x = Math.PI / 2;   // 輪の芯を、この軸に合わせる
+  ring.visible = false;
+  // 輪はつかみにくいので、見えない太い輪を重ねておく
+  const ringGrab = new THREE.Mesh(new THREE.TorusGeometry(0.60, 0.06, 6, 32),
+    new THREE.MeshBasicMaterial({ visible: false }));
+  ringGrab.rotation.x = Math.PI / 2;
+  ringGrab.visible = false;
+
   // 掴みやすいように、見えない太い棒を重ねる
   const grab = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.84, 6),
     new THREE.MeshBasicMaterial({ visible: false }));
   grab.position.y = 0.42;
-  g.add(shaft, tip, cube, grab);
+  g.add(shaft, tip, cube, grab, ring, ringGrab);
   if (a.k === 'x') g.rotation.z = -Math.PI / 2;
   if (a.k === 'z') g.rotation.x = Math.PI / 2;
   g.renderOrder = 999;
-  g.userData = { axis: a.k, dir: a.dir, tip, cube };
+  g.userData = { axis: a.k, dir: a.dir, shaft, tip, cube, grab, ring, ringGrab };
   gizmo.add(g);
   handles.push(g);
 }
@@ -321,10 +335,21 @@ function setMode(m) {
   mode = m;
   document.getElementById('tMove').classList.toggle('on', m === 'move');
   document.getElementById('tScale').classList.toggle('on', m === 'scale');
-  for (const h of handles) { h.userData.tip.visible = m === 'move'; h.userData.cube.visible = m === 'scale'; }
+  document.getElementById('tRot').classList.toggle('on', m === 'rotate');
+  const rot = m === 'rotate';
+  for (const h of handles) {
+    const u = h.userData;
+    u.shaft.visible = !rot;          // 回転のときは棒を消して、輪だけにする
+    u.grab.visible = !rot;
+    u.tip.visible = m === 'move';
+    u.cube.visible = m === 'scale';
+    u.ring.visible = rot;
+    u.ringGrab.visible = rot;
+  }
 }
 document.getElementById('tMove').onclick = () => setMode('move');
 document.getElementById('tScale').onclick = () => setMode('scale');
+document.getElementById('tRot').onclick = () => setMode('rotate');
 
 // ============================================================
 //  カメラ（Roblox Studio と同じ操作）
@@ -342,7 +367,7 @@ function camDir() {
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2) { rightDown = true; e.preventDefault(); }
   else if (e.button === 1) { midDown = true; e.preventDefault(); }
-  else if (e.button === 0) onLeftDown(e);
+  else if (e.button === 0) { e.preventDefault(); onLeftDown(e); }
 });
 addEventListener('mouseup', (e) => {
   if (e.button === 2) rightDown = false;
@@ -350,6 +375,9 @@ addEventListener('mouseup', (e) => {
   if (e.button === 0 && drag) { drag = null; pushUndo(); }
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// 左ドラッグでブラウザの「画像をドラッグ」が始まると、一瞬操作を奪われる。
+canvas.addEventListener('dragstart', (e) => e.preventDefault());
+canvas.addEventListener('selectstart', (e) => e.preventDefault());
 
 addEventListener('mousemove', (e) => {
   if (rightDown) {
@@ -381,6 +409,9 @@ addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.code === 'KeyS') { saveLocal(); e.preventDefault(); }
   if (e.ctrlKey && e.code === 'KeyA') { selectAll(); e.preventDefault(); }
   if (e.code === 'Escape') select(null, false);
+  if (!e.ctrlKey && e.code === 'KeyR') setMode('rotate');
+  if (!e.ctrlKey && e.code === 'KeyG') setMode('move');
+  if (!e.ctrlKey && e.code === 'KeyT') setMode('scale');
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => { keys.clear(); rightDown = midDown = false; });
@@ -431,7 +462,7 @@ function onLeftDown(e) {
   // まず矢印を狙う
   if (gizmo.visible) {
     const hit = ray.intersectObjects(handles, true)[0];
-    if (hit) {
+    if (hit && hit.object.visible !== false) {
       let g = hit.object; while (g.parent && !g.userData.axis) g = g.parent;
       startDrag(g.userData.axis, g.userData.dir);
       return;
@@ -447,27 +478,68 @@ function onLeftDown(e) {
 function startDrag(axis, dir) {
   const centre = new THREE.Vector3();
   selBounds().getCenter(centre);
-  // 軸を含み、カメラに正対する平面の上で動かす
-  const view = camDir();
-  const normal = new THREE.Vector3().crossVectors(dir, new THREE.Vector3().crossVectors(view, dir)).normalize();
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, centre);
+
+  let plane;
+  if (mode === 'rotate') {
+    // 回転は、その軸に対して垂直な板の上で角度を測る
+    plane = new THREE.Plane().setFromNormalAndCoplanarPoint(dir.clone(), centre);
+  } else {
+    // 移動と大きさは、軸を含みカメラに正対する板の上で動かす
+    const view = camDir();
+    const normal = new THREE.Vector3()
+      .crossVectors(dir, new THREE.Vector3().crossVectors(view, dir)).normalize();
+    plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, centre);
+  }
+
   const p0 = new THREE.Vector3();
-  ray.ray.intersectPlane(plane, p0);
+  if (!ray.ray.intersectPlane(plane, p0)) return;
+
   // 選んでいる全部について、始めたときの値を覚えておく
   const start = selection.map((p) => ({
     p,
     pos: p.mesh.position.clone(),
+    quat: p.mesh.quaternion.clone(),
     size: { ...p.mesh.userData.size },
   }));
-  drag = { axis, dir: dir.clone(), plane, p0, start };
+  drag = { axis, dir: dir.clone(), plane, p0, start, centre };
 }
 
+const _q = new THREE.Quaternion();
+const _v = new THREE.Vector3();
+
 function onDragMove(e) {
-  if (!selection.length) return;
+  if (!selection.length || !drag) return;
   toNdc(e);
   ray.setFromCamera(ndc, camera);
   const p = new THREE.Vector3();
   if (!ray.ray.intersectPlane(drag.plane, p)) return;
+
+  // ---------- 回転 ----------
+  if (mode === 'rotate') {
+    const a0 = drag.p0.clone().sub(drag.centre);
+    const a1 = p.clone().sub(drag.centre);
+    if (a0.lengthSq() < 1e-8 || a1.lengthSq() < 1e-8) return;
+    a0.normalize(); a1.normalize();
+    // 軸のまわりの符号つき角度
+    let ang = Math.atan2(
+      _v.copy(a0).cross(a1).dot(drag.dir),
+      a0.dot(a1));
+    if (snap > 0) {
+      const step = Math.PI / 12;           // 15度きざみ（Studio と同じ）
+      ang = Math.round(ang / step) * step;
+    }
+    _q.setFromAxisAngle(drag.dir, ang);
+    for (const st of drag.start) {
+      // その場で向きを変える。複数選んでいるときは、真ん中のまわりを回る。
+      st.p.mesh.quaternion.copy(_q).multiply(st.quat);
+      if (drag.start.length > 1) {
+        st.p.mesh.position.copy(st.pos).sub(drag.centre).applyQuaternion(_q).add(drag.centre);
+      }
+    }
+    syncProps();
+    return;
+  }
+
   let amount = p.clone().sub(drag.p0).dot(drag.dir);
   if (snap > 0) amount = Math.round(amount / snap) * snap;
 
@@ -556,7 +628,8 @@ let snap = 0.01;
 document.getElementById('snapBtn').classList.add('on');
 document.getElementById('snapBtn').onclick = (e) => {
   snap = snap > 0 ? 0 : 0.01;
-  e.target.textContent = snap ? '0.01きざみ' : 'きざみ無し';
+  // 回転のときは 15 度きざみになります
+  e.target.textContent = snap ? '0.01 / 15°きざみ' : 'きざみ無し';
   e.target.classList.toggle('on', snap > 0);
 };
 

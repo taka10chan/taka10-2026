@@ -14,7 +14,9 @@
     color: #e7eef5;
     -webkit-user-select: none; user-select: none;
   }
-  #view { display: block; width: 100vw; height: 100vh; }
+  #view { display: block; width: 100vw; height: 100vh;
+          /* ブラウザが canvas を画像とみなして掴んでしまうのを止める */
+          -webkit-user-drag: none; user-select: none; touch-action: none; }
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 
   /* --- 最初に出る画面 --- */
@@ -62,7 +64,7 @@
 </head>
 <body>
 
-<canvas id="view"></canvas>
+<canvas id="view" draggable="false"></canvas>
 <div id="hud"></div>
 
 <div id="start">
