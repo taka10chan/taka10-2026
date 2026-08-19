@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gun Arena ブラウザ版</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* 画面ぜんたい。HUD 側の style.css より先に読ませています。 */
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0d1319;
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+    color: #e7eef5;
+    -webkit-user-select: none; user-select: none;
+  }
+  #view { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+  /* --- 最初に出る画面 --- */
+  #start {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 1.6rem; text-align: center;
+    background: rgba(8, 13, 18, 0.82);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
+  }
+  #start h1 {
+    margin: 0; font-size: clamp(2.2rem, 7vw, 4rem); font-weight: 700;
+    letter-spacing: 0.06em; color: #ffd66e;
+  }
+  #start .sub { margin: 0; color: #9fb0c0; font-size: 0.95rem; line-height: 2; }
+  #start .go {
+    margin-top: 0.4rem; padding: 0.9rem 2.4rem;
+    border: 1.5px solid #ffd66e; border-radius: 999px;
+    color: #ffd66e; font-size: 1.1rem; font-weight: 600;
+  }
+  #start .go:hover { background: #ffd66e; color: #0d1319; }
+
+  .formats { display: flex; gap: 0.5rem; pointer-events: auto; }
+  .formats button {
+    padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer;
+    border: 1px solid #2b3945; background: #151e27; color: #9fb0c0;
+    font: inherit; font-size: 0.9rem;
+  }
+  .formats button.on { border-color: #ffd66e; color: #ffd66e; background: #23303c; }
+
+  .keys {
+    display: grid; grid-template-columns: auto auto; gap: 0.35rem 1.4rem;
+    font-size: 0.85rem; color: #8fa2b4; margin-top: 0.6rem;
+  }
+  .keys b { color: #cfdae6; font-weight: 600; text-align: right; }
+
+  #warn {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    background: #7a1f1f; color: #fff; padding: 0.8rem 1rem;
+    font-size: 0.85rem; text-align: center; display: none;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<div id="hud"></div>
+
+<div id="start">
+  <h1>GUN ARENA</h1>
+  <p class="sub">
+    ロブロックスで作ったゲームの、ブラウザ版です。<br>
+    武器の強さも、動きの速さも、本物と同じ数値にしてあります。
+  </p>
+
+  <div class="formats">
+    <button data-format="1">1 対 1</button>
+    <button data-format="2">2 対 2</button>
+    <button data-format="3" class="on">3 対 3</button>
+    <button data-format="4">4 対 4</button>
+    <button data-format="5">5 対 5</button>
+  </div>
+
+  <div class="keys">
+    <b>WASD</b><span>移動</span>
+    <b>Shift</b><span>走る</span>
+    <b>Ctrl / C</b><span>スライディング</span>
+    <b>Space</b><span>ジャンプ</span>
+    <b>左クリック</b><span>撃つ</span>
+    <b>右クリック</b><span>構える</span>
+    <b>R</b><span>リロード</span>
+    <b>1 / 2 / 3</b><span>武器を持ちかえる</span>
+    <b>G / F</b><span>グレネード / フラッシュ</span>
+    <b>L</b><span>武器を選ぶ</span>
+    <b>Tab</b><span>スコア</span>
+  </div>
+
+  <div class="go">クリックして始める</div>
+  <p class="sub" style="font-size:0.78rem;opacity:0.7">
+    Esc でマウスが戻ります
+  </p>
+</div>
+
+<div id="warn"></div>
+
+<script type="module">
+  // 読み込みに失敗したときに、真っ黒な画面のまま放置しないための保険。
+  const warn = document.getElementById('warn');
+  addEventListener('error', (e) => {
+    warn.style.display = 'block';
+    warn.textContent = 'エラー: ' + (e.message || e.error);
+  });
+  addEventListener('unhandledrejection', (e) => {
+    warn.style.display = 'block';
+    warn.textContent = '読み込みに失敗しました: ' + (e.reason && e.reason.message || e.reason);
+  });
+  import('./src/main.js').catch((err) => {
+    warn.style.display = 'block';
+    warn.textContent = '読み込みに失敗しました: ' + err.message;
+  });
+</script>
+
+</body>
+</html>
