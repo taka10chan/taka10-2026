@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gun Arena モデルエディタ</title>
+<style>
+  :root {
+    --bg: #0d1319; --panel: #151e27; --panel2: #1d2833; --line: #2b3945;
+    --ink: #e7eef5; --muted: #8c9baa; --accent: #ffc857; --danger: #ff6060;
+    --mono: ui-monospace, SFMono-Regular, Consolas, 'BIZ UDGothic', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { display: flex; height: 100%; }
+
+  /* ---------- 左 ---------- */
+  #left { width: 218px; flex: none; background: var(--panel);
+          border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  #left .top { padding: 12px 12px 8px; border-bottom: 1px solid var(--line); }
+  #left h1 { font-size: 0.9rem; margin: 0 0 2px; }
+  #left .sub { font-family: var(--mono); font-size: 0.63rem; color: var(--muted); letter-spacing: .1em; }
+  #left a { color: var(--muted); font-size: .76rem; text-decoration: none; display: inline-block; margin-top: 6px; }
+  #plist { flex: 1; overflow-y: auto; padding: 6px; }
+  .prow { display: grid; grid-template-columns: 13px 1fr auto; gap: 7px; align-items: center;
+          padding: 5px 7px; border-radius: 5px; cursor: pointer;
+          font-family: var(--mono); font-size: .68rem; }
+  .prow:hover { background: var(--panel2); }
+  .prow.on { background: #33291a; color: var(--accent); }
+  .prow .sw { width: 11px; height: 11px; border-radius: 2px; }
+  .prow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .ty { color: var(--muted); font-size: .62rem; }
+
+  /* ---------- 中央 ---------- */
+  #stage { position: relative; flex: 1; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  #bar { position: absolute; left: 12px; top: 10px; display: flex; gap: 5px; flex-wrap: wrap; max-width: calc(100% - 24px); }
+  .btn { cursor: pointer; padding: 6px 11px; border-radius: 6px; border: 1px solid var(--line);
+         background: rgba(21,30,39,.94); color: var(--muted); font: inherit; font-size: .77rem; }
+  .btn:hover { color: var(--ink); }
+  .btn.on { border-color: var(--accent); color: var(--accent); }
+  .btn.red:hover { color: var(--danger); border-color: var(--danger); }
+  .sep { width: 1px; background: var(--line); margin: 2px 4px; }
+
+  #help { position: absolute; left: 12px; bottom: 10px; font-family: var(--mono);
+          font-size: .68rem; color: var(--muted); line-height: 1.85; pointer-events: none; }
+  #help b { color: #b8c6d4; font-weight: 500; }
+  #toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+           background: #23303c; border: 1px solid var(--accent); color: var(--accent);
+           padding: 8px 16px; border-radius: 7px; font-size: .82rem; opacity: 0;
+           transition: opacity .2s; pointer-events: none; }
+
+  /* ---------- 右 ---------- */
+  #right { width: 262px; flex: none; background: var(--panel);
+           border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; }
+  #right h2 { font-size: .8rem; margin: 0 0 10px; color: var(--accent);
+              font-family: var(--mono); letter-spacing: .1em; font-weight: 500; }
+  .fgrp { margin-bottom: 14px; }
+  .flab { font-size: .68rem; color: var(--muted); margin-bottom: 4px; font-family: var(--mono); }
+  .frow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  input[type=number], input[type=text] {
+    width: 100%; background: #0d1319; border: 1px solid var(--line); color: var(--ink);
+    border-radius: 5px; padding: 5px 6px; font-family: var(--mono); font-size: .72rem;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  input[type=color] { width: 100%; height: 30px; background: none; border: 1px solid var(--line);
+                      border-radius: 5px; padding: 2px; cursor: pointer; }
+  .empty { color: var(--muted); font-size: .78rem; line-height: 1.9; }
+  .note { margin-top: 16px; padding: 10px 11px; border-radius: 6px; background: var(--panel2);
+          border-left: 3px solid var(--accent); font-size: .73rem; line-height: 1.8; color: #b9c6d3; }
+  .note code { font-family: var(--mono); background: #0d1319; padding: 1px 4px; border-radius: 3px; }
+
+  #dlg { position: fixed; inset: 0; background: rgba(5,9,13,.8); z-index: 90;
+         display: none; align-items: center; justify-content: center; }
+  #dlg .card { width: min(760px, 92vw); max-height: 82vh; background: var(--panel);
+               border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; }
+  #dlg textarea { flex: 1; min-height: 46vh; background: #0d1319; color: #cfe0ee;
+                  border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+                  font-family: var(--mono); font-size: .72rem; line-height: 1.55; resize: none; }
+  #dlg .row { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div class="top">
+      <h1>モデルエディタ</h1>
+      <div class="sub">GUN ARENA</div>
+      <a href="viewer.html">← ビューアに戻る</a>
+    </div>
+    <div id="plist"></div>
+  </div>
+
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div id="bar">
+      <select id="load" class="btn" style="padding:6px 8px"></select>
+      <div class="sep"></div>
+      <button class="btn on" id="tMove">移動</button>
+      <button class="btn" id="tScale">大きさ</button>
+      <div class="sep"></div>
+      <button class="btn" id="addBox">＋箱</button>
+      <button class="btn" id="addCyl">＋円柱</button>
+      <button class="btn" id="dup">複製</button>
+      <button class="btn red" id="del">削除</button>
+      <div class="sep"></div>
+      <button class="btn on" id="grid">グリッド</button>
+      <button class="btn" id="snapBtn">0.01きざみ</button>
+      <div class="sep"></div>
+      <button class="btn" id="exp">コードを出す</button>
+      <button class="btn" id="save">保存</button>
+    </div>
+    <div id="help">
+      <b>右ドラッグ</b> 見回す　<b>右+WASD/QE</b> 飛ぶ　<b>中ドラッグ</b> 平行移動　<b>ホイール</b> 前後<br>
+      <b>左クリック</b> 選ぶ　<b>矢印をドラッグ</b> 動かす　<b>F</b> 寄る　<b>Ctrl+D</b> 複製　<b>Del</b> 削除　<b>Ctrl+Z</b> 戻す
+    </div>
+    <div id="toast"></div>
+  </div>
+
+  <div id="right">
+    <h2>プロパティ</h2>
+    <div id="props"><div class="empty">部品をクリックすると、ここで数字をいじれます。</div></div>
+    <div class="note">
+      作った形は「コードを出す」で貼り付け用の文になります。<br>
+      <code>web/src/models/</code> に置いて、<code>gunmodels.js</code> の
+      <code>BUILDERS</code> に足すとゲームで使えます。
+    </div>
+  </div>
+</div>
+
+<div id="dlg"><div class="card">
+  <h2 style="margin-top:0">このまま貼り付けて使えます</h2>
+  <textarea id="code" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="btn" id="copy">コピー</button>
+    <button class="btn" id="dl">ファイルで保存</button>
+    <button class="btn" id="close">閉じる</button>
+  </div>
+</div></div>
+
+<script type="module">
+import * as THREE from './lib/three.module.js';
+import { WEAPONS } from './src/config.js';
+import { buildGunMesh } from './src/gunmodels.js';
+
+// ============================================================
+//  3D の下ごしらえ
+// ============================================================
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1319);
+scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+const l1 = new THREE.DirectionalLight(0xfff4e2, 1.6); l1.position.set(4, 7, 6); scene.add(l1);
+const l2 = new THREE.DirectionalLight(0x9fc4e8, 0.7); l2.position.set(-6, 2, -5); scene.add(l2);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.005, 300);
+const grid = new THREE.GridHelper(6, 60, 0x3a5060, 0x1e2a34);
+scene.add(grid);
+
+const model = new THREE.Group();
+scene.add(model);
+
+// 選んだ部品を囲む枠
+const outline = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+  new THREE.LineBasicMaterial({ color: 0xffc857 }));
+outline.visible = false;
+scene.add(outline);
+
+// ============================================================
+//  部品
+// ============================================================
+let parts = [];      // { mesh, type:'box'|'cyl', color }
+let sel = null;
+let undo = [];
+
+function makeMesh(type, size, pos, rot, color) {
+  const geo = type === 'cyl'
+    ? new THREE.CylinderGeometry(size.x / 2, size.x / 2, size.y, 12)
+    : new THREE.BoxGeometry(size.x, size.y, size.z);
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
+  m.position.set(pos.x, pos.y, pos.z);
+  m.rotation.set(rot.x, rot.y, rot.z);
+  m.userData.type = type;
+  m.userData.size = { ...size };
+  return m;
+}
+
+function addPart(type, size, pos, rot, color, quiet) {
+  const mesh = makeMesh(type, size, pos, rot, color);
+  model.add(mesh);
+  const p = { mesh, type, color };
+  parts.push(p);
+  if (!quiet) { pushUndo(); select(p); }
+  refreshList();
+  return p;
+}
+
+function rebuildGeometry(p) {
+  const s = p.mesh.userData.size;
+  p.mesh.geometry.dispose();
+  p.mesh.geometry = p.type === 'cyl'
+    ? new THREE.CylinderGeometry(s.x / 2, s.x / 2, s.y, 12)
+    : new THREE.BoxGeometry(s.x, s.y, s.z);
+}
+
+/** いまの状態を丸ごと覚えておく（元に戻す用） */
+function snapshot() {
+  return parts.map((p) => ({
+    type: p.type, color: p.color,
+    size: { ...p.mesh.userData.size },
+    pos: { x: p.mesh.position.x, y: p.mesh.position.y, z: p.mesh.position.z },
+    rot: { x: p.mesh.rotation.x, y: p.mesh.rotation.y, z: p.mesh.rotation.z },
+  }));
+}
+function restore(list) {
+  clearAll();
+  for (const d of list) addPart(d.type, d.size, d.pos, d.rot, d.color, true);
+  select(null); refreshList();
+}
+function pushUndo() { undo.push(snapshot()); if (undo.length > 60) undo.shift(); }
+
+function clearAll() {
+  for (const p of parts) { p.mesh.geometry.dispose(); model.remove(p.mesh); }
+  parts = []; sel = null; outline.visible = false; gizmo.visible = false;
+}
+
+// ============================================================
+//  もとのモデルを読み込む
+// ============================================================
+const LOADABLE = ['AR', 'Pistol', 'Sniper', 'SMG', 'Shotgun', 'Marksman',
+                  'LMG', 'Revolver', 'MachinePistol', 'Knife', 'Katana', 'Scythe'];
+const loadSel = document.getElementById('load');
+loadSel.innerHTML = '<option value="">— 新しく作る —</option>' +
+  LOADABLE.map((k) => `<option value="${k}">${WEAPONS[k].display}</option>`).join('');
+loadSel.addEventListener('change', () => {
+  const k = loadSel.value;
+  clearAll();
+  if (k) {
+    const src = buildGunMesh(WEAPONS[k]);
+    src.updateMatrixWorld(true);
+    src.traverse((o) => {
+      if (!o.isMesh) return;
+      const g = o.geometry.parameters || {};
+      const isCyl = o.geometry.type === 'CylinderGeometry';
+      const size = isCyl
+        ? { x: (g.radiusTop ?? 0.1) * 2, y: g.height ?? 1, z: (g.radiusTop ?? 0.1) * 2 }
+        : { x: g.width ?? 1, y: g.height ?? 1, z: g.depth ?? 1 };
+      const wp = new THREE.Vector3(); o.getWorldPosition(wp);
+      addPart(isCyl ? 'cyl' : 'box', size,
+        { x: wp.x, y: wp.y, z: wp.z },
+        { x: o.rotation.x, y: o.rotation.y, z: o.rotation.z },
+        '#' + o.material.color.getHexString(), true);
+    });
+    toast(parts.length + ' 個の部品を読み込みました');
+  }
+  undo = []; pushUndo(); refreshList(); frame();
+});
+
+// ============================================================
+//  つまんで動かす矢印（Studio の見た目に寄せる）
+// ============================================================
+const gizmo = new THREE.Group();
+gizmo.visible = false;
+scene.add(gizmo);
+const AXES = [
+  { k: 'x', col: 0xff4e60, dir: new THREE.Vector3(1, 0, 0) },
+  { k: 'y', col: 0x5ae182, dir: new THREE.Vector3(0, 1, 0) },
+  { k: 'z', col: 0x46a0ff, dir: new THREE.Vector3(0, 0, 1) },
+];
+const handles = [];
+for (const a of AXES) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: a.col, depthTest: false });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.62, 8), mat);
+  shaft.position.y = 0.31;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.16, 10), mat);
+  tip.position.y = 0.70;
+  const cube = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.10), mat);
+  cube.position.y = 0.68; cube.visible = false;
+  // 掴みやすいように、見えない太い棒を重ねる
+  const grab = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.84, 6),
+    new THREE.MeshBasicMaterial({ visible: false }));
+  grab.position.y = 0.42;
+  g.add(shaft, tip, cube, grab);
+  if (a.k === 'x') g.rotation.z = -Math.PI / 2;
+  if (a.k === 'z') g.rotation.x = Math.PI / 2;
+  g.renderOrder = 999;
+  g.userData = { axis: a.k, dir: a.dir, tip, cube };
+  gizmo.add(g);
+  handles.push(g);
+}
+let mode = 'move';
+function setMode(m) {
+  mode = m;
+  document.getElementById('tMove').classList.toggle('on', m === 'move');
+  document.getElementById('tScale').classList.toggle('on', m === 'scale');
+  for (const h of handles) { h.userData.tip.visible = m === 'move'; h.userData.cube.visible = m === 'scale'; }
+}
+document.getElementById('tMove').onclick = () => setMode('move');
+document.getElementById('tScale').onclick = () => setMode('scale');
+
+// ============================================================
+//  カメラ（Roblox Studio と同じ操作）
+// ============================================================
+const cam = { pos: new THREE.Vector3(1.6, 1.0, 2.2), yaw: -0.62, pitch: -0.33 };
+const keys = new Set();
+let rightDown = false, midDown = false;
+let flySpeed = 2.6;
+
+function camDir() {
+  const cp = Math.cos(cam.pitch);
+  return new THREE.Vector3(Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), Math.cos(cam.yaw) * cp);
+}
+
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 2) { rightDown = true; e.preventDefault(); }
+  else if (e.button === 1) { midDown = true; e.preventDefault(); }
+  else if (e.button === 0) onLeftDown(e);
+});
+addEventListener('mouseup', (e) => {
+  if (e.button === 2) rightDown = false;
+  if (e.button === 1) midDown = false;
+  if (e.button === 0 && drag) { drag = null; pushUndo(); }
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+addEventListener('mousemove', (e) => {
+  if (rightDown) {
+    cam.yaw -= e.movementX * 0.0032;
+    cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - e.movementY * 0.0032));
+  } else if (midDown) {
+    const d = camDir();
+    const right = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, d).normalize();
+    const s = 0.0022 * Math.max(0.4, cam.pos.length());
+    cam.pos.addScaledVector(right, -e.movementX * s);
+    cam.pos.addScaledVector(up, e.movementY * s);
+  } else if (drag) {
+    onDragMove(e);
+  }
+});
+canvas.addEventListener('wheel', (e) => {
+  cam.pos.addScaledVector(camDir(), -Math.sign(e.deltaY) * 0.14 * Math.max(0.35, cam.pos.length() * 0.5));
+  e.preventDefault();
+}, { passive: false });
+
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  keys.add(e.code);
+  if (e.code === 'KeyF') frame();
+  if (e.code === 'Delete' || e.code === 'Backspace') { removeSel(); e.preventDefault(); }
+  if (e.ctrlKey && e.code === 'KeyD') { duplicate(); e.preventDefault(); }
+  if (e.ctrlKey && e.code === 'KeyZ') { doUndo(); e.preventDefault(); }
+  if (e.ctrlKey && e.code === 'KeyS') { saveLocal(); e.preventDefault(); }
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => { keys.clear(); rightDown = midDown = false; });
+
+function flyStep(dt) {
+  if (!rightDown) return;   // Studio と同じで、右クリック中だけ飛べる
+  const d = camDir();
+  const right = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0)).normalize();
+  const v = new THREE.Vector3();
+  if (keys.has('KeyW')) v.add(d);
+  if (keys.has('KeyS')) v.sub(d);
+  if (keys.has('KeyD')) v.add(right);
+  if (keys.has('KeyA')) v.sub(right);
+  if (keys.has('KeyE')) v.y += 1;
+  if (keys.has('KeyQ')) v.y -= 1;
+  if (v.lengthSq() > 0) {
+    v.normalize().multiplyScalar(flySpeed * dt * (keys.has('ShiftLeft') ? 2.6 : 1));
+    cam.pos.add(v);
+  }
+}
+
+/** 選んだ部品（なければ全体）に寄る */
+function frame() {
+  const target = sel ? sel.mesh : model;
+  const b = new THREE.Box3().setFromObject(target);
+  if (b.isEmpty()) return;
+  const c = new THREE.Vector3(); b.getCenter(c);
+  const s = new THREE.Vector3(); b.getSize(s);
+  const dist = Math.max(0.25, Math.max(s.x, s.y, s.z) * 2.2);
+  cam.pos.copy(c).addScaledVector(camDir(), -dist);
+}
+
+// ============================================================
+//  選ぶ・つかむ
+// ============================================================
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let drag = null;
+
+function toNdc(e) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+}
+
+function onLeftDown(e) {
+  toNdc(e);
+  ray.setFromCamera(ndc, camera);
+
+  // まず矢印を狙う
+  if (gizmo.visible) {
+    const hit = ray.intersectObjects(handles, true)[0];
+    if (hit) {
+      let g = hit.object; while (g.parent && !g.userData.axis) g = g.parent;
+      startDrag(g.userData.axis, g.userData.dir);
+      return;
+    }
+  }
+  // 次に部品
+  const hits = ray.intersectObjects(parts.map((p) => p.mesh), false);
+  select(hits.length ? parts.find((p) => p.mesh === hits[0].object) : null);
+}
+
+function startDrag(axis, dir) {
+  const origin = sel.mesh.position.clone();
+  // 軸を含み、カメラに正対する平面の上で動かす
+  const view = camDir();
+  const normal = new THREE.Vector3().crossVectors(dir, new THREE.Vector3().crossVectors(view, dir)).normalize();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, origin);
+  const p0 = new THREE.Vector3();
+  ray.ray.intersectPlane(plane, p0);
+  drag = { axis, dir: dir.clone(), plane, p0, origin,
+           size0: { ...sel.mesh.userData.size } };
+}
+
+function onDragMove(e) {
+  if (!sel) return;
+  toNdc(e);
+  ray.setFromCamera(ndc, camera);
+  const p = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(drag.plane, p)) return;
+  let amount = p.clone().sub(drag.p0).dot(drag.dir);
+  if (snap > 0) amount = Math.round(amount / snap) * snap;
+
+  if (mode === 'move') {
+    sel.mesh.position.copy(drag.origin).addScaledVector(drag.dir, amount);
+  } else {
+    const s = sel.mesh.userData.size;
+    const k = drag.axis;
+    s[k] = Math.max(0.005, drag.size0[k] + amount);
+    if (sel.type === 'cyl' && k === 'x') s.z = s.x;
+    if (sel.type === 'cyl' && k === 'z') s.x = s.z;
+    rebuildGeometry(sel);
+  }
+  syncProps();
+}
+
+function select(p) {
+  sel = p;
+  outline.visible = gizmo.visible = !!p;
+  refreshList();
+  syncProps();
+}
+
+// ============================================================
+//  操作ボタン
+// ============================================================
+function duplicate() {
+  if (!sel) return;
+  const s = sel.mesh;
+  pushUndo();
+  addPart(sel.type, { ...s.userData.size },
+    { x: s.position.x, y: s.position.y, z: s.position.z + 0.05 },
+    { x: s.rotation.x, y: s.rotation.y, z: s.rotation.z }, sel.color);
+}
+function removeSel() {
+  if (!sel) return;
+  pushUndo();
+  sel.mesh.geometry.dispose(); model.remove(sel.mesh);
+  parts = parts.filter((p) => p !== sel);
+  select(null);
+}
+function doUndo() {
+  if (undo.length < 2) return;
+  undo.pop();
+  restore(undo[undo.length - 1]);
+  toast('ひとつ戻しました');
+}
+
+document.getElementById('addBox').onclick = () =>
+  addPart('box', { x: .2, y: .2, z: .2 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, '#8c9baa');
+document.getElementById('addCyl').onclick = () =>
+  addPart('cyl', { x: .16, y: .4, z: .16 }, { x: 0, y: 0, z: 0 }, { x: Math.PI / 2, y: 0, z: 0 }, '#8c9baa');
+document.getElementById('dup').onclick = duplicate;
+document.getElementById('del').onclick = removeSel;
+document.getElementById('grid').onclick = (e) => {
+  grid.visible = !grid.visible; e.target.classList.toggle('on', grid.visible);
+};
+let snap = 0.01;
+document.getElementById('snapBtn').classList.add('on');
+document.getElementById('snapBtn').onclick = (e) => {
+  snap = snap > 0 ? 0 : 0.01;
+  e.target.textContent = snap ? '0.01きざみ' : 'きざみ無し';
+  e.target.classList.toggle('on', snap > 0);
+};
+
+// ============================================================
+//  一覧とプロパティ
+// ============================================================
+const plist = document.getElementById('plist');
+function refreshList() {
+  plist.innerHTML = '';
+  parts.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'prow' + (p === sel ? ' on' : '');
+    const s = p.mesh.userData.size;
+    row.innerHTML = `<div class="sw" style="background:${p.color}"></div>` +
+      `<div class="nm">${s.x.toFixed(2)}×${s.y.toFixed(2)}×${s.z.toFixed(2)}</div>` +
+      `<div class="ty">${p.type === 'cyl' ? '円柱' : '箱'}</div>`;
+    row.onclick = () => select(p);
+    plist.appendChild(row);
+  });
+}
+
+const props = document.getElementById('props');
+function syncProps() {
+  if (!sel) {
+    props.innerHTML = '<div class="empty">部品をクリックすると、ここで数字をいじれます。</div>';
+    return;
+  }
+  const m = sel.mesh, s = m.userData.size;
+  const f = (v) => v.toFixed(3);
+  const deg = (r) => (r * 180 / Math.PI).toFixed(1);
+  props.innerHTML = `
+    <div class="fgrp"><div class="flab">位置 (X / Y / Z)</div><div class="frow">
+      <input type="number" step="0.01" id="px" value="${f(m.position.x)}">
+      <input type="number" step="0.01" id="py" value="${f(m.position.y)}">
+      <input type="number" step="0.01" id="pz" value="${f(m.position.z)}"></div></div>
+    <div class="fgrp"><div class="flab">大きさ (X / Y / Z)</div><div class="frow">
+      <input type="number" step="0.01" min="0.005" id="sx" value="${f(s.x)}">
+      <input type="number" step="0.01" min="0.005" id="sy" value="${f(s.y)}">
+      <input type="number" step="0.01" min="0.005" id="sz" value="${f(s.z)}"></div></div>
+    <div class="fgrp"><div class="flab">向き（度）</div><div class="frow">
+      <input type="number" step="1" id="rx" value="${deg(m.rotation.x)}">
+      <input type="number" step="1" id="ry" value="${deg(m.rotation.y)}">
+      <input type="number" step="1" id="rz" value="${deg(m.rotation.z)}"></div></div>
+    <div class="fgrp"><div class="flab">色</div>
+      <input type="color" id="col" value="${sel.color}"></div>`;
+
+  const bind = (id, fn) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => { fn(parseFloat(el.value) || 0); });
+    el.addEventListener('change', pushUndo);
+  };
+  bind('px', (v) => m.position.x = v); bind('py', (v) => m.position.y = v); bind('pz', (v) => m.position.z = v);
+  bind('sx', (v) => { s.x = Math.max(.005, v); if (sel.type === 'cyl') s.z = s.x; rebuildGeometry(sel); refreshList(); });
+  bind('sy', (v) => { s.y = Math.max(.005, v); rebuildGeometry(sel); refreshList(); });
+  bind('sz', (v) => { s.z = Math.max(.005, v); if (sel.type === 'cyl') s.x = s.z; rebuildGeometry(sel); refreshList(); });
+  bind('rx', (v) => m.rotation.x = v * Math.PI / 180);
+  bind('ry', (v) => m.rotation.y = v * Math.PI / 180);
+  bind('rz', (v) => m.rotation.z = v * Math.PI / 180);
+  const c = document.getElementById('col');
+  c.addEventListener('input', () => {
+    sel.color = c.value; sel.mesh.material = new THREE.MeshLambertMaterial({ color: c.value }); refreshList();
+  });
+  c.addEventListener('change', pushUndo);
+}
+
+// ============================================================
+//  書き出し・保存
+// ============================================================
+function toCode() {
+  const L = [];
+  L.push("import * as THREE from '../../lib/three.module.js';", '');
+  L.push('// モデルエディタで作ったもの。', '');
+  L.push('const MAT = new Map();');
+  L.push('function mat(hex) {');
+  L.push('  let m = MAT.get(hex);');
+  L.push('  if (!m) { m = new THREE.MeshLambertMaterial({ color: hex }); MAT.set(hex, m); }');
+  L.push('  return m;');
+  L.push('}', '');
+  L.push('function box(g, w, h, d, x, y, z, hex, rx = 0, ry = 0, rz = 0) {');
+  L.push('  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(hex));');
+  L.push('  m.position.set(x, y, z);');
+  L.push('  m.rotation.set(rx, ry, rz);');
+  L.push('  g.add(m);');
+  L.push('}', '');
+  L.push('function cyl(g, r, len, x, y, z, hex, rx = 0, ry = 0, rz = 0) {');
+  L.push('  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 12), mat(hex));');
+  L.push('  m.position.set(x, y, z);');
+  L.push('  m.rotation.set(rx, ry, rz);');
+  L.push('  g.add(m);');
+  L.push('}', '');
+  L.push('export function build() {');
+  L.push('  const g = new THREE.Group();');
+  const n = (v) => (Math.abs(v) < 1e-6 ? '0' : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, ''));
+  for (const p of parts) {
+    const s = p.mesh.userData.size, q = p.mesh.position, r = p.mesh.rotation;
+    const rot = (r.x || r.y || r.z) ? `, ${n(r.x)}, ${n(r.y)}, ${n(r.z)}` : '';
+    if (p.type === 'cyl') {
+      L.push(`  cyl(g, ${n(s.x / 2)}, ${n(s.y)}, ${n(q.x)}, ${n(q.y)}, ${n(q.z)}, 0x${p.color.slice(1)}${rot});`);
+    } else {
+      L.push(`  box(g, ${n(s.x)}, ${n(s.y)}, ${n(s.z)}, ${n(q.x)}, ${n(q.y)}, ${n(q.z)}, 0x${p.color.slice(1)}${rot});`);
+    }
+  }
+  L.push('');
+  L.push('  g.userData.sightY = 0.4;   // 構えたとき画面の中心に来る高さ');
+  L.push('  g.userData.muzzle = new THREE.Vector3(0, 0, -1);   // 銃口');
+  L.push('  return g;');
+  L.push('}');
+  return L.join('\n');
+}
+
+const dlg = document.getElementById('dlg');
+document.getElementById('exp').onclick = () => {
+  document.getElementById('code').value = toCode();
+  dlg.style.display = 'flex';
+};
+document.getElementById('close').onclick = () => dlg.style.display = 'none';
+document.getElementById('copy').onclick = async () => {
+  const t = document.getElementById('code');
+  t.select();
+  try { await navigator.clipboard.writeText(t.value); toast('コピーしました'); }
+  catch { document.execCommand('copy'); toast('コピーしました'); }
+};
+document.getElementById('dl').onclick = () => {
+  const b = new Blob([toCode()], { type: 'text/javascript' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = 'mymodel.js'; a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+function saveLocal() {
+  localStorage.setItem('gunarena-model', JSON.stringify(snapshot()));
+  toast('この端末に保存しました');
+}
+document.getElementById('save').onclick = saveLocal;
+
+// ============================================================
+//  そのほか
+// ============================================================
+let toastT = 0;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.style.opacity = 1;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.style.opacity = 0, 1600);
+}
+
+function resize() {
+  const r = canvas.parentElement.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = r.width / Math.max(1, r.height);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+let t0 = performance.now();
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - t0) / 1000); t0 = now;
+
+  flyStep(dt);
+  camera.position.copy(cam.pos);
+  camera.lookAt(cam.pos.clone().add(camDir()));
+
+  if (sel) {
+    const b = new THREE.Box3().setFromObject(sel.mesh);
+    const c = new THREE.Vector3(); b.getCenter(c);
+    const s = new THREE.Vector3(); b.getSize(s);
+    outline.position.copy(c);
+    outline.scale.set(Math.max(s.x, .002), Math.max(s.y, .002), Math.max(s.z, .002));
+    gizmo.position.copy(c);
+    // 画面上での大きさを一定に保つ
+    gizmo.scale.setScalar(cam.pos.distanceTo(c) * 0.34);
+  }
+
+  renderer.render(scene, camera);
+}
+
+// 前回の続きがあれば読み込む
+const saved = localStorage.getItem('gunarena-model');
+if (saved) {
+  try { restore(JSON.parse(saved)); toast('前回の続きを読み込みました'); } catch {}
+}
+if (!parts.length) {
+  loadSel.value = 'AR';
+  loadSel.dispatchEvent(new Event('change'));
+}
+setMode('move');
+resize();
+frame();
+loop();
+</script>
+</body>
+</html>
