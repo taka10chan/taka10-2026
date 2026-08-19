@@ -326,6 +326,8 @@ function stepGrenades(dt) {
 // ============================================================
 
 let aiming = false;
+let spectateAt = 0;       // いま誰を見ているか（生きている味方の何番目か）
+let wasAlive = true;
 let last = performance.now();
 let scoreboardOpen = false;
 let loadoutOpen = false;
@@ -435,11 +437,41 @@ function frame() {
   stepMatch(t);
 
   // --- カメラ ---
-  const eye = player.eye;
-  camera.position.set(eye.x, eye.y, eye.z);
   camera.rotation.order = 'YXZ';
-  camera.rotation.y = player.yaw;
-  camera.rotation.x = player.pitch;
+
+  // 生きている味方（自分が死んだときに見る相手）
+  const mates = fighters.filter((f) => f !== player && f.team === player.team && f.alive);
+
+  if (player.alive) {
+    wasAlive = true;
+    const eye = player.eye;
+    camera.position.set(eye.x, eye.y, eye.z);
+    camera.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
+  } else if (mates.length > 0) {
+    // 倒れた直後は先頭から見る
+    if (wasAlive) { spectateAt = 0; wasAlive = false; }
+    if (input.locked && (input.mouse.leftEdge || input.hit('Space'))) {
+      spectateAt = (spectateAt + 1) % mates.length;
+    }
+    const tgt = mates[spectateAt % mates.length];
+
+    // 相手の斜め後ろ上から見る
+    const back = 11, up = 6.5;
+    const bx = Math.sin(tgt.yaw) * back;
+    const bz = Math.cos(tgt.yaw) * back;
+    const want = new THREE.Vector3(
+      tgt.body.pos.x + bx,
+      tgt.body.pos.y + up,
+      tgt.body.pos.z + bz);
+    camera.position.lerp(want, Math.min(1, dt * 6));
+    camera.lookAt(tgt.body.pos.x, tgt.body.pos.y + 3.6, tgt.body.pos.z);
+  } else {
+    // 味方が全員やられた。自分の倒れた場所を上から見る
+    const e = player.eye;
+    camera.position.lerp(new THREE.Vector3(e.x, e.y + 9, e.z + 11), Math.min(1, dt * 4));
+    camera.lookAt(e.x, e.y, e.z);
+  }
 
   const wantFov = aiming ? w.def.adsFov : baseFov + (player.state === State.SLIDE ? 9 : 0);
   camera.fov += (wantFov - camera.fov) * Math.min(1, dt * 12);
@@ -500,7 +532,12 @@ function phaseText(t) {
   if (phase === 'countdown') return 'まもなく開始';
   if (phase === 'roundover') return `次のラウンドまで ${Math.max(0, Math.ceil(phaseEnd - t))}`;
   if (phase === 'matchover') return score.red > score.blue ? 'RED の勝ち' : 'BLUE の勝ち';
-  if (!player.alive) return '観戦中';
+  if (!player.alive) {
+    const mates = fighters.filter((f) => f !== player && f.team === player.team && f.alive);
+    if (mates.length === 0) return '全滅…';
+    const tgt = mates[spectateAt % mates.length];
+    return `観戦中: ${tgt.name}　（左クリック / Space で切り替え）`;
+  }
   return '';
 }
 
