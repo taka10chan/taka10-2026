@@ -124,6 +124,25 @@ let phase = 'idle';             // idle | countdown | live | roundover | matchov
 let phaseEnd = 0;
 let countdownShown = 0;
 
+/**
+ * ボットの強さ。
+ * こちらの点が入るほど強くなります。
+ *   0 点 … skillStart（かなり弱い）
+ *   4 点 … skillEnd  （本気）
+ */
+function botSkillFor(myScore) {
+  const last = Math.max(1, MATCH.scoreToWin - 1);
+  const t = Math.min(1, myScore / last);
+  return BOTS.skillStart + (BOTS.skillEnd - BOTS.skillStart) * t;
+}
+
+/** 星いくつぶんの強さか（画面に出す用） */
+function skillStars(myScore) {
+  const last = Math.max(1, MATCH.scoreToWin - 1);
+  const n = Math.round(Math.min(1, myScore / last) * 4) + 1;
+  return '★'.repeat(n) + '☆'.repeat(5 - n);
+}
+
 function makeBots() {
   for (const b of bots) scene.remove(b.mesh);
   bots.length = 0;
@@ -152,9 +171,11 @@ function startRound() {
   grenades.Frag = GRENADES.Frag.charges;
   grenades.Flash = GRENADES.Flash.charges;
 
+  const skill = botSkillFor(score[player.team]);
   for (const b of bots) {
     const p = arena.spawnFor(b.team, b.team === 'red' ? ri++ : bi++);
     b.respawn(p);
+    b.skill = skill;                       // 点が進むほど強くなる
     b.yaw = b.team === 'red' ? Math.PI : 0;
   }
   phase = 'countdown';
@@ -309,6 +330,7 @@ let settingsOpen = false;
 let started = false;
 
 input.onLockChange = (locked) => {
+  if (input.touch) return;                // タッチ操作のときは関係ない
   document.getElementById('start').style.display = locked ? 'none' : 'flex';
   if (locked && !started) { started = true; startMatch(); }
 };
@@ -503,9 +525,11 @@ function frame() {
 }
 
 function phaseText(t) {
-  if (phase === 'countdown') return 'まもなく開始';
+  const lv = 'ボット ' + skillStars(score[player.team]);
+  if (phase === 'countdown') return 'まもなく開始　' + lv;
   if (phase === 'roundover') return `次のラウンドまで ${Math.max(0, Math.ceil(phaseEnd - t))}`;
   if (phase === 'matchover') return score.red > score.blue ? 'RED の勝ち' : 'BLUE の勝ち';
+  if (phase === 'live' && player.alive) return lv;
   if (!player.alive) {
     const mates = fighters.filter((f) => f !== player && f.team === player.team && f.alive);
     if (mates.length === 0) return '全滅…';
@@ -557,7 +581,35 @@ for (const el of document.querySelectorAll('[data-format]')) {
   });
 }
 
-document.getElementById('start').addEventListener('click', () => canvas.requestPointerLock());
+// マウスが無い端末（学校のタブレットなど）はタッチで操作します
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+
+function beginTouchGame() {
+  input.enableTouch(document.getElementById('stick'), document.getElementById('knob'));
+  for (const [id, code] of [
+    ['btFire', 'FIRE'], ['btAim', 'AIM'], ['btJump', 'Space'],
+    ['btSlide', 'ControlLeft'], ['btRun', 'ShiftLeft'], ['btReload', 'KeyR'],
+    ['btW1', 'Digit1'], ['btW2', 'Digit2'], ['btW3', 'Digit3'],
+    ['btNade', 'KeyG'], ['btLoad', 'KeyL'],
+  ]) input.bindButton(document.getElementById(id), code);
+
+  document.getElementById('touch').style.display = 'block';
+  document.getElementById('start').style.display = 'none';
+  input.locked = true;                    // タッチではマウス固定を使わない
+  if (!started) { started = true; startMatch(); }
+}
+
+document.getElementById('start').addEventListener('click', () => {
+  if (IS_TOUCH) beginTouchGame();
+  else canvas.requestPointerLock();
+});
+
+// 自動で分からなかったとき用。押せば必ずタッチ操作になります。
+const forceBtn = document.getElementById('forceTouch');
+if (forceBtn) forceBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  beginTouchGame();
+});
 
 // クリックする前の眺め。アリーナ全体が見える高さに置いておく。
 player.respawn(0, 26, 132);

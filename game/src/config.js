@@ -40,7 +40,16 @@ export const HITBOX = {
  * skill を上げるほど強くなります（1.0 が元の強さ）。
  */
 export const BOTS = {
-  skill: 0.8,
+  skill: 0.8,             // 下の skillStart / skillEnd を使うので、いまは予備
+
+  /**
+   * 点が入るごとに、だんだん強くなります。
+   *   0 点  … skillStart（かなり弱い。まず勝てる）
+   *   4 点  … skillEnd  （本気。あと1点が遠い）
+   * 数字を上げるほど強くなります。
+   */
+  skillStart: 0.32,
+  skillEnd: 1.25,
 
   reactionBase: 0.55,      // 見つけてから撃ち始めるまで（秒）。大きいほど弱い
   reactionJitterMin: 0.7,  // その何倍か（下限）

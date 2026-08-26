@@ -55,6 +55,49 @@
   }
   .keys b { color: #cfdae6; font-weight: 600; text-align: right; }
 
+  /* ---------- タッチ操作（マウスが無い端末） ---------- */
+  #touch { position: fixed; inset: 0; z-index: 20; display: none; pointer-events: none; }
+  #touch .b {
+    position: absolute; pointer-events: auto;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px; border: 2px solid rgba(255,214,110,.55);
+    background: rgba(13,19,25,.42); color: #ffd66e;
+    font-size: 0.82rem; font-weight: 600; line-height: 1.1; text-align: center;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  #touch .b.press, #touch .b.on { background: rgba(255,214,110,.85); color: #0d1319; }
+
+  /* 右手（撃つ・構える） */
+  #btFire  { right: 5vw;  bottom: 15vh; width: 22vw; height: 22vw; max-width: 118px; max-height: 118px; font-size: 1rem; }
+  #btAim   { right: 30vw; bottom: 13vh; width: 15vw; height: 15vw; max-width: 82px; max-height: 82px; }
+
+  /* 右上（武器の持ちかえ） */
+  #btW1 { right: 4vw;  top: 24vh; }
+  #btW2 { right: 4vw;  top: 33vh; }
+  #btW3 { right: 4vw;  top: 42vh; }
+  #touch .sm { width: 12vw; height: 12vw; max-width: 62px; max-height: 62px; font-size: 0.9rem; }
+
+  /* 左手のまわり */
+  #btJump   { right: 5vw;  bottom: 39vh; width: 15vw; height: 15vw; max-width: 82px; max-height: 82px; }
+  #btSlide  { left: 4vw;   bottom: 6vh; }
+  #btRun    { left: 22vw;  bottom: 6vh; }
+  #btReload { right: 30vw; bottom: 30vh; }
+  #btNade   { left: 4vw;   bottom: 20vh; }
+  #btLoad   { left: 4vw;   top: 24vh; }
+
+  /* 指を置いた所に出るスティック */
+  #stick {
+    position: fixed; display: none; z-index: 19;
+    width: 132px; height: 132px; margin: -66px 0 0 -66px;
+    border-radius: 50%; border: 2px solid rgba(255,255,255,.28);
+    background: rgba(13,19,25,.28); pointer-events: none;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: 0; border-radius: 50%;
+    background: rgba(255,214,110,.75); transform: translate(-50%,-50%);
+  }
+
   #warn {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
     background: #7a1f1f; color: #fff; padding: 0.8rem 1rem;
@@ -96,13 +139,35 @@
     <b>Tab</b><span>スコア</span>
   </div>
 
-  <div class="go">クリックして始める</div>
+  <div class="go" id="goLabel">クリックして始める</div>
   <p class="sub" style="font-size:0.78rem;opacity:0.7">
     Esc でマウスが戻ります
   </p>
+  <button id="forceTouch" style="pointer-events:auto;cursor:pointer;margin-top:-0.6rem;
+     padding:0.55rem 1.2rem;border-radius:999px;border:1px solid #2b3945;
+     background:#151e27;color:#9fb0c0;font:inherit;font-size:0.82rem">
+    指で操作する（タブレット用）
+  </button>
+
   <a href="viewer.html" style="pointer-events:auto;color:#8fa2b4;font-size:0.8rem;
      text-decoration:none;border-bottom:1px solid #33414e;padding-bottom:2px"
      onclick="event.stopPropagation()">武器のモデルを見る →</a>
+</div>
+
+<div id="stick"><div id="knob"></div></div>
+
+<div id="touch">
+  <div class="b" id="btFire">撃つ</div>
+  <div class="b" id="btAim">構える</div>
+  <div class="b" id="btJump">ジャンプ</div>
+  <div class="b sm" id="btSlide">スライド</div>
+  <div class="b sm" id="btRun">走る</div>
+  <div class="b sm" id="btReload">リロード</div>
+  <div class="b sm" id="btNade">投げる</div>
+  <div class="b sm" id="btLoad">武器選択</div>
+  <div class="b sm" id="btW1">1</div>
+  <div class="b sm" id="btW2">2</div>
+  <div class="b sm" id="btW3">3</div>
 </div>
 
 <div id="warn"></div>
@@ -118,6 +183,17 @@
     warn.style.display = 'block';
     warn.textContent = '読み込みに失敗しました: ' + (e.reason && e.reason.message || e.reason);
   });
+  // タッチの端末では、キーボードの説明を消して案内を変える
+  if (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0) {
+    const k = document.querySelector('.keys');
+    if (k) k.innerHTML =
+      '<b>左半分をなぞる</b><span>歩く</span>' +
+      '<b>右半分をなぞる</b><span>まわりを見る</span>' +
+      '<b>画面のボタン</b><span>撃つ・ジャンプなど</span>';
+    const g = document.getElementById('goLabel');
+    if (g) g.textContent = 'タップして始める';
+  }
+
   import('./src/main.js').catch((err) => {
     warn.style.display = 'block';
     warn.textContent = '読み込みに失敗しました: ' + err.message;
