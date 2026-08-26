@@ -82,13 +82,13 @@ hud.onFov = (v) => { baseFov = v; };
 // ============================================================
 
 const viewmodel = new THREE.Group();
-viewmodel.scale.setScalar(0.3);   // 銃はスタッド単位。そのままだと画面を埋めるので縮める
+// 大きさは武器ごとに refreshViewmodel で入れ直します
 camera.add(viewmodel);
 scene.add(camera);
 
 let gunMesh = null;
 let muzzleLocal = new THREE.Vector3(0, 0.06, -3);
-const VM_SCALE = 0.3;
+const VM_BASE = 0.3;      // 全体の基準。武器ごとの viewScale を掛けます
 const ADS = new THREE.Vector3(0, 0, -0.85);   // refreshViewmodel で高さを入れ直す
 
 function refreshViewmodel() {
@@ -98,9 +98,13 @@ function refreshViewmodel() {
   viewmodel.add(gunMesh);
   muzzleLocal = muzzleOf(def, gunMesh);
 
+  // 武器ごとの大きさ
+  const sc = VM_BASE * (def.viewScale || 1);
+  viewmodel.scale.setScalar(sc);
+
   // 照準器がちょうど画面の中心に来る高さへ下げる。
   // こうすると「覗いた先＝弾の飛ぶ先」が一致します。
-  ADS.set(0, -(gunMesh.userData.sightY || 0.46) * VM_SCALE, def.scope ? -0.7 : -0.62);
+  ADS.set(0, -(gunMesh.userData.sightY || 0.46) * sc, def.scope ? -0.7 : -0.62);
 }
 refreshViewmodel();
 

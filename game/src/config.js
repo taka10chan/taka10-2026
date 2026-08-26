@@ -103,6 +103,8 @@ export const WEAPONS = {
     damage: 21, headMult: 1.9, rate: 10, mag: 30, reserve: 180, reload: 2.0,
     spread: 0.9, moveSpread: 1.5, range: 420, auto: true, pellets: 1,
     recoil: 0.5, adsFov: 58, body: 0x30343c, accent: 0xff962d, length: 3.4,
+    // 一人称で画面に出るときの大きさ。実寸モデルは小さく見えるので少し大きく。
+    viewScale: 1.30,
   },
   SMG: {
     name: 'SMG', display: 'サブマシンガン', slot: 1,
@@ -122,6 +124,7 @@ export const WEAPONS = {
     spread: 0.05, moveSpread: 3.5, range: 900, auto: false, pellets: 1,
     recoil: 3.4, adsFov: 20, scope: true, body: 0x262a30, accent: 0x96eba0, length: 4.7,
     headBox: { w: 4.5, h: 2.6, d: 4.5 },   // 胴に当たっても頭の近くなら頭扱い
+    viewScale: 0.95,        // もともと長いので、少しだけ小さく
   },
   Marksman: {
     name: 'Marksman', display: 'マークスマンライフル', slot: 1,
@@ -141,6 +144,7 @@ export const WEAPONS = {
     damage: 28, headMult: 2.0, rate: 6.5, mag: 15, reserve: 120, reload: 1.2,
     spread: 0.8, moveSpread: 1.3, range: 260, auto: false, pellets: 1,
     recoil: 0.9, adsFov: 62, body: 0x2c2e36, accent: 0xd2d7e1, length: 1.8,
+    viewScale: 2.10,        // 拳銃は実寸だと小さすぎるので大きめに
   },
   Revolver: {
     name: 'Revolver', display: 'リボルバー', slot: 2,
