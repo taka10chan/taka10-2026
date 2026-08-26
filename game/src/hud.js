@@ -96,6 +96,7 @@ export class Hud {
     this.onLoadoutPick = null;
     this.onSensitivity = null;
     this.onFov = null;
+    this.onGunScale = null;
 
     // 前回の値。update() で「変わったときだけ書く」ために使います。
     this._p = {};
@@ -332,6 +333,28 @@ export class Hud {
     this.fovInput = row('視野角', 60, 110, 1, 80, 0, (v) => {
       if (this.onFov) this.onFov(v);
     });
+    this.gunInput = row('武器の大きさ', 0.5, 2.5, 0.05, 1.0, 2, (v) => {
+      if (this.onGunScale) this.onGunScale(v);
+    });
+
+    const note = mk('div', 'h-set-note', panel,
+      '武器の大きさ … 手前に見える銃の大きさです。当たる場所は変わりません。');
+  }
+
+  /**
+   * 設定の初期値を入れる（前に使った値を読み込むとき用）。
+   * スライダーの見た目と数字も合わせます。
+   */
+  setSettings({ sensitivity, fov, gunScale } = {}) {
+    const put = (input, v, digits) => {
+      if (!input || v == null) return;
+      input.value = String(v);
+      const val = input.parentElement.querySelector('.h-set-val');
+      if (val) val.textContent = Number(v).toFixed(digits);
+    };
+    put(this.sensInput, sensitivity, 2);
+    put(this.fovInput, fov, 0);
+    put(this.gunInput, gunScale, 2);
   }
 
   /** 下の操作ヒント。25 秒たったら 1.5 秒かけて消えます。 */

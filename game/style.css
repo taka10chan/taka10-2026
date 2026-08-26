@@ -834,3 +834,13 @@
 .h-hint.out {
   opacity: 0;
 }
+
+/* 設定パネルの下に出る、ひとこと説明 */
+.h-set-note {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  line-height: 1.7;
+  color: #969aa6;
+}

@@ -67,6 +67,24 @@ let grenadeCooldown = 0;
 
 let baseFov = BASE_FOV;
 let sensitivity = 1.0;
+let gunScale = 1.0;        // 武器の大きさ。設定でみんなが変えられます
+
+// 前に使った設定を読み込む（この端末に覚えさせています）
+const SETTINGS_KEY = 'gunarena-settings';
+try {
+  const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  if (isFinite(saved.sensitivity)) sensitivity = saved.sensitivity;
+  if (isFinite(saved.fov)) baseFov = saved.fov;
+  if (isFinite(saved.gunScale)) gunScale = saved.gunScale;
+} catch {}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      sensitivity, fov: baseFov, gunScale,
+    }));
+  } catch {}
+}
 
 hud.onLoadoutPick = (cat, name) => {
   loadout[cat] = name;
@@ -74,8 +92,9 @@ hud.onLoadoutPick = (cat, name) => {
   slots[idx] = new WeaponState(name);
   if (slot === idx) refreshViewmodel();
 };
-hud.onSensitivity = (v) => { sensitivity = v; };
-hud.onFov = (v) => { baseFov = v; };
+hud.onSensitivity = (v) => { sensitivity = v; saveSettings(); };
+hud.onFov = (v) => { baseFov = v; saveSettings(); };
+hud.onGunScale = (v) => { gunScale = v; refreshViewmodel(); saveSettings(); };
 
 // ============================================================
 //  一人称の武器（画面の手前に出る銃）
@@ -98,8 +117,8 @@ function refreshViewmodel() {
   viewmodel.add(gunMesh);
   muzzleLocal = muzzleOf(def, gunMesh);
 
-  // 武器ごとの大きさ
-  const sc = VM_BASE * (def.viewScale || 1);
+  // 武器ごとの大きさ × 設定でみんなが決めた倍率
+  const sc = VM_BASE * (def.viewScale || 1) * gunScale;
   viewmodel.scale.setScalar(sc);
 
   // 照準器がちょうど画面の中心に来る高さへ下げる。
@@ -107,6 +126,9 @@ function refreshViewmodel() {
   ADS.set(0, -(gunMesh.userData.sightY || 0.46) * sc, def.scope ? -0.7 : -0.62);
 }
 refreshViewmodel();
+
+// 読み込んだ設定を、スライダーの見た目にも反映する
+if (hud.setSettings) hud.setSettings({ sensitivity, fov: baseFov, gunScale });
 
 // 画面のどこに銃を置くか。腰だめ / 構え / スライディング。
 const HIP = new THREE.Vector3(0.62, -0.52, -1.15);
@@ -594,7 +616,7 @@ function beginTouchGame() {
     ['btFire', 'FIRE'], ['btAim', 'AIM'], ['btJump', 'Space'],
     ['btSlide', 'ControlLeft'], ['btRun', 'ShiftLeft'], ['btReload', 'KeyR'],
     ['btW1', 'Digit1'], ['btW2', 'Digit2'], ['btW3', 'Digit3'],
-    ['btNade', 'KeyG'], ['btLoad', 'KeyL'],
+    ['btNade', 'KeyG'], ['btLoad', 'KeyL'], ['btOpt', 'KeyO'],
   ]) input.bindButton(document.getElementById(id), code);
 
   document.getElementById('touch').style.display = 'block';
