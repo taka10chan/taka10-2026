@@ -120,6 +120,7 @@
       <div class="sep"></div>
       <button class="btn" id="exp">コードを出す</button>
       <button class="btn" id="save">保存</button>
+      <button class="btn" id="toGame" style="border-color:#5ae182;color:#5ae182">ゲームで使う</button>
     </div>
     <div id="help">
       <b>右ドラッグ</b> 見回す　<b>右+WASD/QE</b> 飛ぶ　<b>中ドラッグ</b> 平行移動　<b>ホイール</b> 前後<br>
@@ -131,6 +132,14 @@
   <div id="right">
     <h2>プロパティ</h2>
     <div id="props"><div class="empty">部品をクリックすると、ここで数字をいじれます。<br><br>Shift を押しながらクリックすると、いくつも選べます。</div></div>
+
+    <h2 style="margin-top:20px">モデル設定</h2>
+    <div class="fgrp"><div class="flab">照準の高さ（構えたとき画面の中心に来る）</div>
+      <input type="number" step="0.01" id="mSight" placeholder="自動"></div>
+    <div class="fgrp"><div class="flab">銃口 (X / Y / Z)</div><div class="frow">
+      <input type="number" step="0.01" id="mMx" placeholder="自動">
+      <input type="number" step="0.01" id="mMy" placeholder="自動">
+      <input type="number" step="0.01" id="mMz" placeholder="自動"></div></div>
     <div class="note">
       作った形は「コードを出す」で貼り付け用の文になります。<br>
       <code>web/src/models/</code> に置いて、<code>gunmodels.js</code> の
@@ -247,7 +256,11 @@ function restore(list) {
   for (const d of list) addPart(d.type, d.size, d.pos, d.rot, d.color, true);
   select(null, false); refreshList();
 }
-function pushUndo() { undo.push(snapshot()); if (undo.length > 60) undo.shift(); }
+function pushUndo() {
+  undo.push(snapshot());
+  if (undo.length > 60) undo.shift();
+  if (typeof markDirty === 'function') markDirty();   // 少し待ってから自動保存
+}
 
 function clearAll() {
   for (const p of parts) { p.mesh.geometry.dispose(); model.remove(p.mesh); }
@@ -825,11 +838,90 @@ document.getElementById('dl').onclick = () => {
   URL.revokeObjectURL(a.href);
 };
 
-function saveLocal() {
+function saveLocal(quiet) {
+  const now = localStorage.getItem('gunarena-model');
+  if (now) localStorage.setItem('gunarena-model-prev', now);   // 念のため一つ前も残す
   localStorage.setItem('gunarena-model', JSON.stringify(snapshot()));
-  toast('この端末に保存しました');
+  if (!quiet) toast('この端末に保存しました');
 }
-document.getElementById('save').onclick = saveLocal;
+document.getElementById('save').onclick = () => saveLocal(false);
+
+// 押し忘れても消えないように、変えたら少し待って勝手に保存します。
+let dirty = false;
+let autoT = 0;
+function markDirty() {
+  dirty = true;
+  clearTimeout(autoT);
+  autoT = setTimeout(() => { if (dirty) { saveLocal(true); dirty = false; } }, 1500);
+}
+addEventListener('beforeunload', () => { if (dirty) saveLocal(true); });
+
+/**
+ * 照準の高さと銃口の位置。
+ * 何も入れていなければ、形から自動で決めます。
+ *   照準 … いちばん上にある所の、少し下
+ *   銃口 … いちばん前（-Z）に出ている部品の、前の面
+ */
+function autoMeta() {
+  const b = new THREE.Box3().setFromObject(model);
+  if (b.isEmpty()) return { sightY: 0.4, muzzle: { x: 0, y: 0, z: -1 } };
+  let front = null, frontZ = Infinity;
+  for (const q of parts) {
+    const qb = new THREE.Box3().setFromObject(q.mesh);
+    if (qb.min.z < frontZ) { frontZ = qb.min.z; front = qb; }
+  }
+  const c = new THREE.Vector3();
+  front.getCenter(c);
+  return {
+    sightY: +(b.max.y - 0.06).toFixed(3),
+    muzzle: { x: +c.x.toFixed(3), y: +c.y.toFixed(3), z: +frontZ.toFixed(3) },
+  };
+}
+
+function readMeta() {
+  const a = autoMeta();
+  const num = (id, fallback) => {
+    const el = document.getElementById(id);
+    const v = parseFloat(el && el.value);
+    return isFinite(v) ? v : fallback;
+  };
+  return {
+    sightY: num('mSight', a.sightY),
+    muzzle: { x: num('mMx', a.muzzle.x), y: num('mMy', a.muzzle.y), z: num('mMz', a.muzzle.z) },
+  };
+}
+
+// --- ゲームで使う ---
+const GAME_SLOTS = [
+  ['AR', 'アサルトライフル'], ['SMG', 'サブマシンガン'], ['Shotgun', 'ショットガン'],
+  ['Sniper', 'スナイパーライフル'], ['Marksman', 'マークスマンライフル'], ['LMG', '軽機関銃'],
+  ['Pistol', 'ピストル'], ['Revolver', 'リボルバー'], ['MachinePistol', 'マシンピストル'],
+];
+
+document.getElementById('toGame').onclick = () => {
+  if (!parts.length) { toast('部品がありません'); return; }
+  const list = GAME_SLOTS.map(([k, n], i) => (i + 1) + '. ' + n).join('\n');
+  const ans = prompt(
+    'どの武器として使いますか？ 番号を入れてください。\n' +
+    '（0 を入れると、自作モデルを全部やめて元に戻します）\n\n' + list, '1');
+  if (ans === null) return;
+  const i = parseInt(ans, 10);
+
+  if (i === 0) {
+    for (const [k] of GAME_SLOTS) localStorage.removeItem('gunarena-custom-' + k);
+    toast('元のモデルに戻しました');
+    return;
+  }
+  const slot = GAME_SLOTS[i - 1];
+  if (!slot) { toast('その番号はありません'); return; }
+
+  const meta = readMeta();
+  localStorage.setItem('gunarena-custom-' + slot[0], JSON.stringify({
+    parts: snapshot(), sightY: meta.sightY, muzzle: meta.muzzle,
+  }));
+  saveLocal(true);
+  toast(slot[1] + ' として登録しました。ゲームを開き直すと出ます');
+};
 
 // ============================================================
 //  そのほか
