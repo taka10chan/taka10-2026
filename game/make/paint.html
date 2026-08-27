@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ことだま・おえかき部屋</title>
+<style>
+  /* ==========================================================
+     ことだま・おえかき部屋（ドット絵エディタ）の見た目
+     style.css は使いません。この <style> と src/paint.js だけで完結します。
+     色は ことだま／Gun Arena の他のページと合わせています。
+     ========================================================== */
+  :root {
+    --bg:    #0d1319;   /* 背景 */
+    --panel: #151e27;   /* パネル */
+    --panel2:#1d2833;   /* パネル（少し明るい） */
+    --line:  #2b3945;   /* 線 */
+    --ink:   #e7eef5;   /* 文字 */
+    --muted: #8c9baa;   /* うすい文字 */
+    --accent:#ffd66e;   /* アクセント（きいろ） */
+    --danger:#ff6060;   /* 消すボタン */
+    --mono: ui-monospace, SFMono-Regular, Consolas, 'BIZ UDGothic', monospace;
+  }
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    min-height: 100%;
+    background: var(--bg); color: var(--ink);
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+    /* 指でなぞったときに文字が青く選ばれてしまうのを止める */
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* 画像として掴まれる（ゴーストが出る）のを、ページ全体で止める */
+  img, canvas, a, button { -webkit-user-drag: none; }
+
+  /* ---------- いちばん上の帯 ---------- */
+  header {
+    flex: none;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--accent);
+    letter-spacing: .04em;
+  }
+  header .sub { font-size: .72rem; color: var(--muted); }
+  header .grow { flex: 1; }
+  header a.back {
+    color: var(--muted); font-size: .82rem; text-decoration: none;
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 10px 16px; min-height: 44px; display: inline-flex; align-items: center;
+  }
+  header a.back:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ---------- ゲームでの書きかたを出す帯 ---------- */
+  #codebar {
+    flex: none;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 14px;
+    background: #101a22; border-bottom: 1px solid var(--line);
+  }
+  #codebar .lab { font-size: .72rem; color: var(--muted); }
+  #code {
+    font-family: var(--mono); font-size: .86rem; color: var(--accent);
+    background: #0a1118; border: 1px solid #3b4b59; border-radius: 7px;
+    padding: 9px 13px; min-height: 40px; display: inline-flex; align-items: center;
+    cursor: pointer; white-space: nowrap; overflow-x: auto; max-width: 100%;
+  }
+  #code:hover { border-color: var(--accent); background: #131f28; }
+  #codebar .hint { font-size: .7rem; color: #6d7c8b; }
+
+  /* ---------- 3つのならび ---------- */
+  #app {
+    flex: 1; min-height: 0;
+    display: flex; align-items: stretch;
+  }
+
+  aside, #center { min-width: 0; }
+
+  /* 左：道具と色 */
+  #side {
+    width: 236px; flex: none; overflow-y: auto;
+    background: var(--panel); border-right: 1px solid var(--line);
+    padding: 12px;
+  }
+  /* 右：絵の一覧 */
+  #arts {
+    width: 250px; flex: none; overflow-y: auto;
+    background: var(--panel); border-left: 1px solid var(--line);
+    padding: 12px;
+  }
+  /* 真ん中：ドットの板 */
+  #center { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 12px; gap: 10px; }
+
+  h2 {
+    font-size: .74rem; margin: 0 0 8px; color: var(--accent);
+    font-family: var(--mono); letter-spacing: .12em; font-weight: 500;
+  }
+  h2.mt { margin-top: 18px; }
+
+  /* ---------- ボタン ---------- */
+  .btn {
+    cursor: pointer; font: inherit; font-size: .8rem;
+    min-height: 44px; padding: 8px 12px;
+    border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--ink);
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn:hover { border-color: #4a5d6d; }
+  .btn.on { border-color: var(--accent); color: var(--accent); background: #33291a; }
+  .btn.red:hover { color: var(--danger); border-color: var(--danger); }
+  .btn.mini { min-height: 38px; font-size: .74rem; padding: 6px 9px; }
+  .btn:disabled { opacity: .35; cursor: default; }
+
+  /* 道具のならび（2列） */
+  #tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #tools .btn { flex-direction: column; gap: 2px; min-height: 56px; font-size: .72rem; padding: 6px 4px; }
+  #tools .btn .ic { font-size: 1.2rem; line-height: 1.1; }
+
+  /* いまの色 */
+  #nowbox { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  #nowsw {
+    width: 56px; height: 56px; flex: none; border-radius: 9px;
+    border: 2px solid var(--line);
+    /* 市松（透明のとき用） */
+    background-color: #ff4d6d;
+  }
+  #nowtx { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+
+  /* パレット */
+  #palette { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+  #palette button {
+    width: 100%; aspect-ratio: 1 / 1; min-height: 30px;
+    border-radius: 6px; border: 2px solid #26313b; cursor: pointer; padding: 0;
+  }
+  #palette button.on { border-color: var(--accent); box-shadow: 0 0 0 2px #33291a inset; }
+
+  .picklab { display: block; margin-top: 10px; font-size: .68rem; color: var(--muted); }
+  #pick { width: 100%; height: 44px; margin-top: 4px; padding: 3px;
+          background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+
+  /* ---------- ドットの板 ---------- */
+  #boardwrap {
+    flex: 1; min-height: 220px;
+    display: flex; align-items: center; justify-content: center;
+    background: #0a1118; border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden;
+  }
+  #board {
+    display: block;
+    /* ★ここが大事★ 画像として掴まれない・指でスクロールしない */
+    -webkit-user-drag: none; user-select: none; -webkit-user-select: none;
+    touch-action: none;
+    image-rendering: pixelated;
+    cursor: crosshair;
+    box-shadow: 0 0 0 1px #3b4b59;
+  }
+
+  /* 板の下のボタンたち */
+  #barrow { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  #bar { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+  #bar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 3px; }
+
+  /* 実物大プレビュー */
+  #prevbox {
+    flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--panel);
+  }
+  #prevbox .lab { font-size: .64rem; color: var(--muted); font-family: var(--mono); }
+  #prev { display: block; image-rendering: pixelated; -webkit-user-drag: none; }
+
+  /* ---------- 絵の一覧 ---------- */
+  #list { display: flex; flex-direction: column; gap: 6px; }
+  .arow {
+    display: grid; grid-template-columns: 44px 1fr; gap: 9px; align-items: center;
+    padding: 6px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent; background: var(--panel2);
+    min-height: 56px;
+  }
+  .arow:hover { border-color: #4a5d6d; }
+  .arow.on { border-color: var(--accent); background: #33291a; }
+  .arow canvas {
+    width: 44px; height: 44px; border-radius: 5px; image-rendering: pixelated;
+    -webkit-user-drag: none; background: #0a1118;
+  }
+  .arow .nm { font-size: .84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .arow .sz { font-family: var(--mono); font-size: .64rem; color: var(--muted); }
+  .arow.on .sz { color: #c3a86a; }
+  #artbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+  #artbtns .wide { grid-column: 1 / -1; }
+
+  .note {
+    margin-top: 14px; padding: 9px 10px; border-radius: 7px;
+    background: var(--panel2); border-left: 3px solid var(--accent);
+    font-size: .7rem; line-height: 1.85; color: #b9c6d3;
+  }
+  .note code { font-family: var(--mono); background: #0a1118; padding: 1px 4px; border-radius: 3px; }
+
+  /* ---------- お知らせ（トースト） ---------- */
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: #23303c; border: 1px solid var(--accent); color: var(--accent);
+    padding: 11px 18px; border-radius: 8px; font-size: .85rem;
+    opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 120;
+  }
+  #toast.show { opacity: 1; }
+
+  /* ---------- まんなかに出る箱（名前を聞く／たしかめる） ---------- */
+  #dlg {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(5,9,13,.82);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  #dlg.show { display: flex; }
+  #dlg .card {
+    width: min(420px, 100%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  #dlg h3 { margin: 0; font-size: 1rem; color: var(--accent); }
+  #dlg .msg { font-size: .84rem; color: #b9c6d3; line-height: 1.8; white-space: pre-wrap; }
+  #dlg input[type=text] {
+    width: 100%; min-height: 46px;
+    background: #0a1118; border: 1px solid var(--line); color: var(--ink);
+    border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 1rem;
+    -webkit-user-select: text; user-select: text;
+  }
+  #dlg input[type=text]:focus { outline: none; border-color: var(--accent); }
+  #dlg .sizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  #dlg .err { font-size: .8rem; color: var(--danger); min-height: 1.1em; }
+  #dlg .row { display: flex; gap: 8px; justify-content: flex-end; }
+  #dlg .row .btn { min-width: 96px; }
+
+  /* ---------- 幅がせまいとき（タブレットを縦にしたときなど） ---------- */
+  @media (max-width: 900px) {
+    #app { flex-direction: column; }
+    #side, #arts {
+      width: auto; border: none; border-bottom: 1px solid var(--line);
+      overflow: visible;
+    }
+    #arts { border-bottom: none; border-top: 1px solid var(--line); }
+    #center { order: -1; }              /* 板をいちばん上に */
+    #boardwrap { height: min(78vw, 56vh); min-height: 200px; flex: none; }
+    #palette { grid-template-columns: repeat(8, 1fr); }
+    #tools { grid-template-columns: repeat(3, 1fr); }
+    #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    body { overflow-y: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ことだま・おえかき部屋</h1>
+  <span class="sub">キャラの絵を じぶんで かく ところ</span>
+  <span class="grow"></span>
+  <a class="back" href="index.html">← ことだまに もどる</a>
+</header>
+
+<div id="codebar">
+  <span class="lab">ゲームで つかうときの 書きかた</span>
+  <span id="code" title="クリックすると コピーします">もよう(はこ(0, 5, 0, 4, 4, 4), "ねこ")</span>
+  <span class="hint">クリックで コピー</span>
+</div>
+
+<div id="app">
+
+  <!-- ============ 左：道具と色 ============ -->
+  <aside id="side">
+    <h2>どうぐ</h2>
+    <div id="tools">
+      <button class="btn on" data-tool="pen"><span class="ic">✏️</span>ペン</button>
+      <button class="btn" data-tool="eraser"><span class="ic">🧽</span>けしゴム</button>
+      <button class="btn" data-tool="fill"><span class="ic">🪣</span>ぬりつぶし</button>
+      <button class="btn" data-tool="pick"><span class="ic">💧</span>スポイト</button>
+      <button class="btn" data-tool="rect"><span class="ic">⬛</span>しかく</button>
+      <button class="btn" data-tool="line"><span class="ic">─</span>せん</button>
+    </div>
+
+    <h2 class="mt">いまの いろ</h2>
+    <div id="nowbox">
+      <div id="nowsw"></div>
+      <div id="nowtx">#ff4d6d</div>
+    </div>
+    <div id="palette"></div>
+    <label class="picklab" for="pick">すきな色を つくる ↓</label>
+    <input type="color" id="pick" value="#ff4d6d" title="すきな色をつくる">
+
+    <div class="note">
+      ペンは <b>ドラッグ</b> で ずっと ぬれます。<br>
+      まちがえたら <code>Ctrl+Z</code> で もどせます。
+    </div>
+  </aside>
+
+  <!-- ============ 真ん中：ドットの板 ============ -->
+  <section id="center">
+    <div id="boardwrap">
+      <canvas id="board" draggable="false"></canvas>
+    </div>
+
+    <div id="barrow">
+      <div id="bar">
+        <button class="btn mini" id="bUndo" title="Ctrl+Z">↶ もどす</button>
+        <button class="btn mini" id="bRedo" title="Ctrl+Y">↷ やりなおす</button>
+        <div class="sep"></div>
+        <button class="btn mini on" id="bGrid">井 グリッド</button>
+        <button class="btn mini" id="bSize">大きさ 16×16</button>
+        <div class="sep"></div>
+        <button class="btn mini" id="bFlipH">◧ 左右はんてん</button>
+        <button class="btn mini" id="bFlipV">⬒ 上下はんてん</button>
+        <button class="btn mini" id="bRot">↻ 90どまわす</button>
+        <button class="btn mini red" id="bClear">ぜんぶ消す</button>
+        <div class="sep"></div>
+        <a class="btn mini" id="bPng1" download="art.png" href="#">PNG（実物大）</a>
+        <a class="btn mini" id="bPng8" download="art.png" href="#">PNG（8ばい）</a>
+      </div>
+
+      <div id="prevbox">
+        <span class="lab">ゲームでの 大きさ</span>
+        <canvas id="prev" draggable="false"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 右：絵の一覧 ============ -->
+  <aside id="arts">
+    <h2>えの いちらん</h2>
+    <div id="list"></div>
+    <div id="artbtns">
+      <button class="btn mini wide" id="bNew">＋ あたらしく つくる</button>
+      <button class="btn mini" id="bRename">名前を かえる</button>
+      <button class="btn mini" id="bDup">ふくせい</button>
+      <button class="btn mini red wide" id="bDel">この絵を 消す</button>
+    </div>
+    <div class="note">
+      かいた絵は <b>ひとりでに 保存</b> されます。<br>
+      ゲームでは <code>もよう(もの, "なまえ")</code> で、はこや たまに はりつけます。
+    </div>
+  </aside>
+
+</div>
+
+<div id="toast"></div>
+
+<!-- 名前を聞いたり、たしかめたりする箱 -->
+<div id="dlg">
+  <div class="card">
+    <h3 id="dlgTitle">タイトル</h3>
+    <div class="msg" id="dlgMsg"></div>
+    <input type="text" id="dlgInput" maxlength="24" autocomplete="off" spellcheck="false">
+    <div class="sizes" id="dlgSizes">
+      <button class="btn mini" data-size="8">8×8</button>
+      <button class="btn mini" data-size="16">16×16</button>
+      <button class="btn mini" data-size="32">32×32</button>
+      <button class="btn mini" data-size="64">64×64</button>
+    </div>
+    <div class="err" id="dlgErr"></div>
+    <div class="row">
+      <button class="btn" id="dlgCancel">やめる</button>
+      <button class="btn on" id="dlgOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/paint.js"></script>
+</body>
+</html>

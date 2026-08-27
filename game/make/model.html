@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ことだま — モデリング部屋</title>
+<style>
+  /* ============================================================
+     いろ と 基本
+     ============================================================ */
+  :root {
+    --bg:     #0d1319;   /* いちばん暗いところ */
+    --panel:  #151e27;   /* 左右のパネル */
+    --panel2: #1d2833;   /* パネルの中の少し明るいところ */
+    --line:   #2b3945;   /* 線 */
+    --ink:    #e7eef5;   /* 文字 */
+    --muted:  #8c9baa;   /* うすい文字 */
+    --accent: #ffd66e;   /* えらんでいる色（ことだまの色） */
+    --danger: #ff6b6b;   /* 消すボタン */
+    --ok:     #5ae182;   /* できたよの色 */
+    --mono: ui-monospace, SFMono-Regular, Consolas, 'BIZ UDGothic', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  /* 左ドラッグしたときに、ブラウザが「画像を運ぼう」としてゴーストを出すのを止める。
+     （これは実際に起きた不具合。canvas と画像っぽいもの全部に効かせる） */
+  canvas, img, a {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  #app { display: flex; height: 100%; }
+
+  /* ============================================================
+     左（作品の一覧 と 部品の一覧）
+     ============================================================ */
+  #left {
+    width: 232px; flex: none; background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #left .top { padding: 12px 12px 10px; border-bottom: 1px solid var(--line); }
+  #left h1 { font-size: .95rem; margin: 0 0 2px; }
+  #left .sub { font-family: var(--mono); font-size: .62rem; color: var(--muted); letter-spacing: .12em; }
+  #left .back {
+    color: var(--muted); font-size: .8rem; text-decoration: none;
+    display: inline-flex; align-items: center; min-height: 32px; margin-top: 6px;
+  }
+  #left .back:hover { color: var(--accent); }
+
+  .sect { border-bottom: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .sect > h2 {
+    font-size: .72rem; margin: 0; padding: 9px 12px 5px; color: var(--accent);
+    font-family: var(--mono); letter-spacing: .1em; font-weight: 500;
+  }
+  #wlist { max-height: 30vh; overflow-y: auto; padding: 2px 6px 6px; }
+  #plist { flex: 1; overflow-y: auto; padding: 2px 6px 10px; min-height: 60px; }
+  .wrow, .prow {
+    display: grid; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 6px; cursor: pointer;
+    min-height: 36px; font-size: .78rem;
+  }
+  .wrow { grid-template-columns: 1fr auto; }
+  .prow { grid-template-columns: 14px 1fr auto; font-family: var(--mono); font-size: .7rem; }
+  .wrow:hover, .prow:hover { background: var(--panel2); }
+  .wrow.on, .prow.on { background: #37301c; color: var(--accent); }
+  .prow .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.18); }
+  .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cnt, .prow .ty { color: var(--muted); font-size: .64rem; font-family: var(--mono); }
+  .wrow.on .cnt { color: #bda765; }
+
+  .wbtns { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 10px; }
+  .wbtns .btn { flex: 1 1 44%; }
+
+  /* ============================================================
+     まんなか（3Dの画面）
+     ============================================================ */
+  #stage { position: relative; flex: 1; min-width: 0; }
+  canvas#c {
+    display: block; width: 100%; height: 100%;
+    touch-action: none;            /* 指の操作を全部こちらで受け取る */
+    -webkit-user-select: none; user-select: none;
+    outline: none;
+  }
+
+  #bar {
+    position: absolute; left: 12px; top: 10px;
+    display: flex; gap: 5px; flex-wrap: wrap; align-items: center;
+    max-width: calc(100% - 24px);
+  }
+  .btn {
+    cursor: pointer; padding: 8px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: rgba(21,30,39,.94);
+    color: var(--muted); font: inherit; font-size: .8rem;
+    min-height: 44px;              /* タブレットの指でも押せる大きさ */
+    display: inline-flex; align-items: center; justify-content: center;
+    white-space: nowrap;
+  }
+  .btn:hover { color: var(--ink); border-color: #3d4f5e; }
+  .btn.on { border-color: var(--accent); color: var(--accent); background: #2a2416; }
+  .btn.red:hover { color: var(--danger); border-color: var(--danger); }
+  .btn.go { border-color: var(--ok); color: var(--ok); }
+  .btn.small { min-height: 36px; padding: 6px 9px; font-size: .74rem; }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 4px 4px; }
+  .only-narrow { display: none; }
+
+  #state {
+    font-family: var(--mono); font-size: .68rem; color: var(--muted);
+    padding: 0 6px; white-space: nowrap;
+  }
+
+  #help {
+    position: absolute; left: 12px; bottom: 10px; right: 12px;
+    font-family: var(--mono); font-size: .68rem; color: var(--muted);
+    line-height: 1.9; pointer-events: none;
+  }
+  #help b { color: #b8c6d4; font-weight: 500; }
+
+  #toast {
+    position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: #23303c; border: 1px solid var(--accent); color: var(--accent);
+    padding: 10px 18px; border-radius: 8px; font-size: .85rem;
+    opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+  }
+
+  /* ============================================================
+     右（プロパティ と 色）
+     ============================================================ */
+  #right {
+    width: 268px; flex: none; background: var(--panel);
+    border-left: 1px solid var(--line); overflow-y: auto; padding: 12px;
+  }
+  #right h2 {
+    font-size: .78rem; margin: 0 0 10px; color: var(--accent);
+    font-family: var(--mono); letter-spacing: .1em; font-weight: 500;
+  }
+  .fgrp { margin-bottom: 13px; }
+  .flab { font-size: .68rem; color: var(--muted); margin-bottom: 4px; font-family: var(--mono); }
+  .frow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  input[type=number], input[type=text] {
+    width: 100%; background: #0d1319; border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 8px 7px; font-family: var(--mono); font-size: .76rem;
+    min-height: 38px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  input[type=color] {
+    width: 100%; height: 40px; background: none; border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px; cursor: pointer;
+  }
+  .empty { color: var(--muted); font-size: .78rem; line-height: 1.9; }
+  .multi {
+    background: #37301c; border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 7px; padding: 8px 10px; margin-bottom: 12px; font-size: .8rem;
+  }
+  .multi span { display: block; color: #bda765; font-size: .68rem; margin-top: 2px; }
+
+  #pal { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  #pal button {
+    height: 34px; border-radius: 6px; border: 1px solid rgba(255,255,255,.16);
+    cursor: pointer; padding: 0;
+  }
+  #pal button:hover { border-color: var(--accent); }
+
+  .note {
+    margin-top: 16px; padding: 10px 11px; border-radius: 7px; background: var(--panel2);
+    border-left: 3px solid var(--accent); font-size: .74rem; line-height: 1.85; color: #b9c6d3;
+  }
+  .note code { font-family: var(--mono); background: #0d1319; padding: 1px 5px; border-radius: 3px; }
+  .note b { color: var(--accent); font-weight: 600; }
+
+  /* ============================================================
+     せまい画面（学校のタブレットなど）… 左右のパネルを畳む
+     ============================================================ */
+  @media (max-width: 880px) {
+    .only-narrow { display: inline-flex; }
+    #left, #right {
+      position: absolute; top: 0; height: 100%; z-index: 30;
+      box-shadow: 0 0 26px rgba(0,0,0,.55);
+      transition: transform .18s ease-out;
+    }
+    #left  { left: 0;  transform: translateX(-102%); }
+    #right { right: 0; transform: translateX(102%); }
+    #left.open, #right.open { transform: translateX(0); }
+    #stage { width: 100%; }
+    /* 道具の列は よこに スクロールさせる。畳むボタンは いつも 見える所に とめておく */
+    #bar {
+      flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+      left: 8px; right: 8px; top: 62px; max-width: none; padding-bottom: 4px;
+    }
+    #bar::-webkit-scrollbar { height: 6px; }
+    #bar::-webkit-scrollbar-thumb { background: #2b3945; border-radius: 3px; }
+    /* 道具の列（#bar）の中ではなく、画面そのものに とめる */
+    .only-narrow { position: fixed; top: 10px; z-index: 35; }
+    #burger { left: 8px; }
+    #gear { right: 8px; }
+    /* 引き出しが 出ているときは、ボタンを その となりに よけて 重ならないようにする */
+    #app.leftopen  #burger { left: 240px; }
+    #app.rightopen #gear   { right: 276px; }
+    #help { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== 左：作品の一覧 と 部品の一覧 ===== -->
+  <aside id="left">
+    <div class="top">
+      <h1>モデリング部屋</h1>
+      <div class="sub">KOTODAMA</div>
+      <a class="back" href="index.html">← ことだま に もどる</a>
+    </div>
+
+    <div class="sect">
+      <h2>さくひん</h2>
+      <div id="wlist"></div>
+      <div class="wbtns">
+        <button class="btn small" id="wNew">＋ あたらしく</button>
+        <button class="btn small" id="wRename">なまえ</button>
+        <button class="btn small" id="wDup">ふくせい</button>
+        <button class="btn small red" id="wDel">けす</button>
+      </div>
+    </div>
+
+    <div class="sect" style="flex:1; border-bottom:none;">
+      <h2>ぶひん</h2>
+      <div id="plist"></div>
+    </div>
+  </aside>
+
+  <!-- ===== まんなか：3Dの画面 ===== -->
+  <main id="stage">
+    <canvas id="c" draggable="false" tabindex="0"></canvas>
+
+    <div id="bar">
+      <button class="btn only-narrow" id="burger">☰ さくひん</button>
+      <button class="btn on" id="tMove">いどう</button>
+      <button class="btn" id="tScale">おおきさ</button>
+      <button class="btn" id="tRot">かいてん</button>
+      <div class="sep"></div>
+      <button class="btn" id="addBox">＋ はこ</button>
+      <button class="btn" id="addCyl">＋ えんちゅう</button>
+      <button class="btn" id="dup">ふくせい</button>
+      <button class="btn red" id="del">けす</button>
+      <div class="sep"></div>
+      <button class="btn on" id="grid">グリッド</button>
+      <button class="btn on" id="snapBtn">0.25 きざみ</button>
+      <button class="btn" id="undoBtn">もどす</button>
+      <div class="sep"></div>
+      <button class="btn go" id="use">ことだまで つかう</button>
+      <span id="state">ほぞんずみ</span>
+      <button class="btn only-narrow" id="gear">▤ すうじ</button>
+    </div>
+
+    <div id="help">
+      <b>右ドラッグ</b> みまわす　<b>右+WASD/QE</b> とぶ　<b>中ドラッグ</b> よこにうごく　<b>ホイール</b> よる　<b>F</b> えらんだものへ よる<br>
+      <b>左クリック</b> えらぶ　<b>Shift+クリック</b> いくつも えらぶ　<b>やじるし/わ を ドラッグ</b> うごかす・まわす　<b>W/E/R</b> いどう・おおきさ・かいてん　<b>Ctrl+Z</b> もどす　<b>Del</b> けす　<b>Esc</b> やめる<br>
+      <b>ゆび</b> 1本で みまわす　2本で ズーム・へいこういどう　タップで えらぶ
+    </div>
+
+    <div id="toast"></div>
+  </main>
+
+  <!-- ===== 右：えらんだ部品の数字 と 色 ===== -->
+  <aside id="right">
+    <h2>すうじ</h2>
+    <div id="props">
+      <div class="empty">ぶひんを クリックすると、ここで すうじを いじれます。<br><br>Shift を おしながら クリックすると、いくつも えらべます。</div>
+    </div>
+
+    <h2 style="margin-top:20px">よく つかう いろ</h2>
+    <div id="pal"></div>
+
+    <div class="note">
+      <b>あしもとを y=0 に</b><br>
+      白っぽい グリッドが 地面（y=0）です。ここに あしが つくように 作ると、
+      ことだまで <code>じぶんのモデル(x, y, z, "なまえ")</code> と 書いたとき、
+      ちょうど 地面に 立ちます。
+    </div>
+    <div class="note">
+      へんこうは <b>じどうで ほぞん</b>されます（1びょうくらい 手を とめると ほぞん）。
+    </div>
+  </aside>
+
+</div>
+
+<script type="module" src="./src/model.js"></script>
+</body>
+</html>

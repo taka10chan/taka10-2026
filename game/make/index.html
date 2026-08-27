@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ことだま — 日本語でゲームをつくる</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================= いちばん上の帯（ボタンならび） ================= -->
+  <header id="bar">
+    <a class="brand" href="../index.html" title="Gun Arena にもどる">ことだま</a>
+
+    <!-- ▶ と ■ はおなじボタン。うごいている間は「■ ストップ」に変わる -->
+    <button type="button" class="btn primary" id="btnRun" aria-live="polite">
+      <span class="ic" id="runIcon">▶</span><span id="runLabel">プレイ</span>
+    </button>
+
+    <div class="menu">
+      <button type="button" class="btn" id="btnSample" aria-haspopup="true" aria-expanded="false">サンプル<span class="caret">▾</span></button>
+      <div class="pop" id="popSample" role="menu" hidden></div>
+    </div>
+
+    <button type="button" class="btn" id="btnWords" aria-expanded="false">📖<span>単語帳</span></button>
+
+    <a class="btn" href="model.html" title="3Dの モデルを つくる">🧱<span>モデリング部屋</span></a>
+
+    <a class="btn" href="anim.html" title="モデルを うごかす">🎬<span>アニメ部屋</span></a>
+
+    <a class="btn" href="paint.html" title="もようを かく">🎨<span>おえかき部屋</span></a>
+
+    <div class="menu">
+      <button type="button" class="btn" id="btnWorks" aria-haspopup="true" aria-expanded="false">さくひん<span class="caret">▾</span></button>
+      <div class="pop wide" id="popWorks" role="menu" hidden></div>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="workinfo">
+      <span id="workName" title="いまひらいている さくひん">さくひん</span>
+      <span id="saveState" class="save">ほぞんずみ</span>
+    </div>
+  </header>
+
+  <!-- ================= まんなか（コード ／ ゲーム＋ログ） ================= -->
+  <main id="main">
+
+    <!-- 左：コードを書くところ -->
+    <section id="codePane" class="pane">
+      <div class="pane-head">
+        <span>コードを かくところ</span>
+        <span class="hint-small">Tab で 字下げ</span>
+      </div>
+      <div id="codeWrap">
+        <div id="gutter" aria-hidden="true"></div>
+        <div id="codeArea">
+          <!-- 行を光らせる下じき。textarea のうしろにいる -->
+          <div id="hlLayer" aria-hidden="true"></div>
+          <textarea id="code" spellcheck="false" autocomplete="off"
+                    autocapitalize="off" autocorrect="off" wrap="off"
+                    aria-label="コードを かくところ"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右：ゲーム画面 と ログ -->
+    <section id="rightPane">
+
+      <div id="stagePane" class="pane">
+        <div class="pane-head"><span>ゲームの がめん</span><span class="hint-small" id="stageFocusHint">クリックすると キーが きく</span></div>
+        <div id="stageWrap" tabindex="0" role="application" aria-label="ゲームの がめん">
+          <div id="stageBox">
+            <canvas id="screen" width="640" height="480"></canvas>
+            <div id="stageHint"><div class="hint-in">▶ プレイ を おすと<br>ここに でます</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="logPane" class="pane">
+        <div class="pane-head">
+          <span>ログ・エラー</span>
+          <button type="button" class="mini" id="btnClearLog">けす</button>
+        </div>
+        <div id="log" aria-live="polite"></div>
+      </div>
+
+    </section>
+  </main>
+</div>
+
+<!-- ================= 単語帳（右から出てくる） ================= -->
+<div id="scrim" hidden></div>
+<aside id="dict" hidden aria-label="単語帳">
+  <div class="dict-head">
+    <strong>📖 単語帳</strong>
+    <button type="button" class="mini" id="dictClose">とじる ✕</button>
+  </div>
+  <div class="dict-search">
+    <input id="dictQ" type="search" placeholder="さがす（うごかす・いろ・キー …）"
+           autocomplete="off" aria-label="単語をさがす">
+  </div>
+  <div id="dictList"></div>
+  <div class="dict-foot">えらぶと カーソルの ところに はいります</div>
+</aside>
+
+<!-- 読みこみに失敗したときに、まっくらなまま放置しないための保険 -->
+<div id="fatal" hidden></div>
+
+<script type="module">
+  // app.js の読みこみそのものが失敗したときだけ、ここで知らせる。
+  import('./src/app.js').catch((err) => {
+    const f = document.getElementById('fatal');
+    f.hidden = false;
+    f.textContent = '読みこみに しっぱいしました: ' + (err && err.message ? err.message : err);
+  });
+</script>
+
+</body>
+</html>
