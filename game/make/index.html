@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ことだま — 日本語でゲームをつくる</title>
+<title>ことだま — 日本語でゲームを作る</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div id="app">
 
-  <!-- ================= いちばん上の帯（ボタンならび） ================= -->
+  <!-- ================= いちばん上の帯（ボタンの並び） ================= -->
   <header id="bar">
-    <a class="brand" href="../index.html" title="Gun Arena にもどる">ことだま</a>
+    <a class="brand" href="../index.html" title="Gun Arena に戻る">ことだま</a>
 
-    <!-- ▶ と ■ はおなじボタン。うごいている間は「■ ストップ」に変わる -->
+    <!-- ▶ と ■ は同じボタン。動いている間は「■ ストップ」に変わる -->
     <button type="button" class="btn primary" id="btnRun" aria-live="polite">
       <span class="ic" id="runIcon">▶</span><span id="runLabel">プレイ</span>
     </button>
@@ -26,54 +26,132 @@
 
     <button type="button" class="btn" id="btnWords" aria-expanded="false">📖<span>単語帳</span></button>
 
-    <a class="btn" href="model.html" title="3Dの モデルを つくる">🧱<span>モデリング部屋</span></a>
+    <a class="btn" href="model.html" title="3D のモデルを作る">🧱<span>モデリング部屋</span></a>
 
-    <a class="btn" href="anim.html" title="モデルを うごかす">🎬<span>アニメ部屋</span></a>
+    <a class="btn" href="anim.html" title="モデルを動かす">🎬<span>アニメ部屋</span></a>
 
-    <a class="btn" href="paint.html" title="もようを かく">🎨<span>おえかき部屋</span></a>
+    <a class="btn" href="paint.html" title="模様を描く">🎨<span>おえかき部屋</span></a>
 
     <div class="menu">
-      <button type="button" class="btn" id="btnWorks" aria-haspopup="true" aria-expanded="false">さくひん<span class="caret">▾</span></button>
+      <button type="button" class="btn" id="btnWorks" aria-haspopup="true" aria-expanded="false">作品<span class="caret">▾</span></button>
       <div class="pop wide" id="popWorks" role="menu" hidden></div>
     </div>
 
     <div class="spacer"></div>
     <div class="workinfo">
-      <span id="workName" title="いまひらいている さくひん">さくひん</span>
-      <span id="saveState" class="save">ほぞんずみ</span>
+      <span id="workName" title="いま開いている作品">作品</span>
+      <span id="saveState" class="save">保存済み</span>
     </div>
   </header>
 
-  <!-- ================= まんなか（コード ／ ゲーム＋ログ） ================= -->
+  <!-- ================= 真ん中（ワールド ／ ゲーム＋ログ ／ コード） ================= -->
   <main id="main">
 
-    <!-- 左：コードを書くところ -->
-    <section id="codePane" class="pane">
+    <!-- ---------- 左：ワールド一覧 と 設定 ---------- -->
+    <section id="worldPane" class="pane">
+
       <div class="pane-head">
-        <span>コードを かくところ</span>
-        <span class="hint-small">Tab で 字下げ</span>
+        <span>ワールド</span>
+        <button type="button" class="mini" id="btnFold" title="ワールド一覧を畳む">◀ 畳む</button>
       </div>
-      <div id="codeWrap">
-        <div id="gutter" aria-hidden="true"></div>
-        <div id="codeArea">
-          <!-- 行を光らせる下じき。textarea のうしろにいる -->
-          <div id="hlLayer" aria-hidden="true"></div>
-          <textarea id="code" spellcheck="false" autocomplete="off"
-                    autocapitalize="off" autocorrect="off" wrap="off"
-                    aria-label="コードを かくところ"></textarea>
+
+      <div id="worldBody">
+        <!-- ものの一覧。app.js が中身を作る -->
+        <div id="worldList" role="listbox" aria-label="ワールドにあるもの"></div>
+
+        <!-- ものを増やすボタン -->
+        <div id="addRow">
+          <button type="button" class="add" id="btnAddBox"  title="箱を置く">＋箱</button>
+          <button type="button" class="add" id="btnAddBall" title="玉を置く">＋玉</button>
+          <button type="button" class="add" id="btnAddTube" title="筒を置く">＋筒</button>
+          <button type="button" class="add" id="btnAddModel" title="モデリング部屋で作ったモデルを置く">＋モデル</button>
+        </div>
+
+        <!-- ---------- 設定パネル ---------- -->
+        <div class="pane-head sub"><span>設定</span><span class="hint-small" id="propTarget">選んでいません</span></div>
+
+        <div id="propEmpty">
+          一覧からものを選ぶか、<br>＋箱 などで新しく置いてください。
+        </div>
+
+        <div id="propBox" hidden>
+
+          <div class="prow">
+            <span class="plabel">名前</span>
+            <input id="pName" type="text" autocomplete="off" spellcheck="false" aria-label="名前">
+          </div>
+          <div id="pNameErr" class="perr" hidden></div>
+
+          <div class="prow" id="pModelRow" hidden>
+            <span class="plabel">モデル</span>
+            <select id="pModel" aria-label="モデル"></select>
+          </div>
+
+          <div class="pgroup">
+            <div class="ptitle">位置</div>
+            <div class="pnums">
+              <label class="num"><span class="cap" data-num="pX">x</span><input id="pX" type="number" step="0.5"></label>
+              <label class="num"><span class="cap" data-num="pY">y</span><input id="pY" type="number" step="0.5"></label>
+              <label class="num"><span class="cap" data-num="pZ">z</span><input id="pZ" type="number" step="0.5"></label>
+            </div>
+          </div>
+
+          <div class="pgroup">
+            <div class="ptitle">大きさ</div>
+            <div class="pnums">
+              <label class="num"><span class="cap" data-num="pW">横</span><input id="pW" type="number" step="0.5" min="0.1"></label>
+              <label class="num"><span class="cap" data-num="pH">高さ</span><input id="pH" type="number" step="0.5" min="0.1"></label>
+              <label class="num"><span class="cap" data-num="pD">奥行き</span><input id="pD" type="number" step="0.5" min="0.1"></label>
+            </div>
+          </div>
+
+          <div class="pgroup">
+            <div class="ptitle">回転（度）</div>
+            <div class="pnums">
+              <label class="num"><span class="cap" data-num="pRY">向き</span><input id="pRY" type="number" step="15"></label>
+              <label class="num"><span class="cap" data-num="pRX">傾き</span><input id="pRX" type="number" step="15"></label>
+            </div>
+          </div>
+
+          <div class="prow">
+            <span class="plabel">色</span>
+            <input id="pColor" type="color" aria-label="色">
+            <span id="pColorText" class="ccode">#ffffff</span>
+          </div>
+
+          <div class="pgroup">
+            <div class="ptitle">当たり判定</div>
+            <label class="chk"><input id="pWall" type="checkbox"><span>壁（通り抜けできない）</span></label>
+            <label class="chk"><input id="pGrav" type="checkbox"><span>重力（落ちる）</span></label>
+            <label class="chk"><input id="pVis"  type="checkbox"><span>見える（消しても当たり判定は残る）</span></label>
+          </div>
+
+          <div class="pbtns">
+            <button type="button" class="mini" id="btnDup" title="複製する（Ctrl+D）">複製</button>
+            <button type="button" class="mini del" id="btnDel" title="削除する（Del）">削除</button>
+          </div>
+
         </div>
       </div>
     </section>
 
-    <!-- 右：ゲーム画面 と ログ -->
-    <section id="rightPane">
+    <!-- ---------- 真ん中：ゲーム画面 と ログ ---------- -->
+    <section id="centerPane">
 
       <div id="stagePane" class="pane">
-        <div class="pane-head"><span>ゲームの がめん</span><span class="hint-small" id="stageFocusHint">クリックすると キーが きく</span></div>
-        <div id="stageWrap" tabindex="0" role="application" aria-label="ゲームの がめん">
+        <div class="pane-head">
+          <span>ゲーム画面</span>
+          <span class="tools" id="toolRow">
+            <button type="button" class="tool-b on" id="btnMove"  title="つかんで動かす（W）">移動</button>
+            <button type="button" class="tool-b"    id="btnScale" title="大きさを変える（E）">大きさ</button>
+            <button type="button" class="tool-b"    id="btnRot"   title="回す（R）">回転</button>
+          </span>
+          <span class="hint-small" id="stageFocusHint">クリックするとキーが効く</span>
+        </div>
+        <div id="stageWrap" tabindex="0" role="application" aria-label="ゲーム画面">
           <div id="stageBox">
             <canvas id="screen" width="640" height="480"></canvas>
-            <div id="stageHint"><div class="hint-in">▶ プレイ を おすと<br>ここに でます</div></div>
+            <div id="stageHint"><div class="hint-in">▶ プレイを押すとここに出ます</div></div>
           </div>
         </div>
       </div>
@@ -81,12 +159,36 @@
       <div id="logPane" class="pane">
         <div class="pane-head">
           <span>ログ・エラー</span>
-          <button type="button" class="mini" id="btnClearLog">けす</button>
+          <button type="button" class="mini" id="btnClearLog">消す</button>
         </div>
         <div id="log" aria-live="polite"></div>
       </div>
 
     </section>
+
+    <!-- ---------- 右：コードを書くところ ---------- -->
+    <section id="codePane" class="pane">
+
+      <!-- 「ワールド」と、選んでいるものの名前のタブ -->
+      <div id="codeTabs" role="tablist" aria-label="コードのタブ"></div>
+
+      <div class="pane-head">
+        <span id="codeWhere">コードを書くところ</span>
+        <span class="hint-small">Tab で字下げ</span>
+      </div>
+
+      <div id="codeWrap">
+        <div id="gutter" aria-hidden="true"></div>
+        <div id="codeArea">
+          <!-- 行を光らせる下敷き。textarea の後ろにいる -->
+          <div id="hlLayer" aria-hidden="true"></div>
+          <textarea id="code" spellcheck="false" autocomplete="off"
+                    autocapitalize="off" autocorrect="off" wrap="off"
+                    aria-label="コードを書くところ"></textarea>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -95,17 +197,17 @@
 <aside id="dict" hidden aria-label="単語帳">
   <div class="dict-head">
     <strong>📖 単語帳</strong>
-    <button type="button" class="mini" id="dictClose">とじる ✕</button>
+    <button type="button" class="mini" id="dictClose">閉じる ✕</button>
   </div>
   <div class="dict-search">
-    <input id="dictQ" type="search" placeholder="さがす（うごかす・いろ・キー …）"
-           autocomplete="off" aria-label="単語をさがす">
+    <input id="dictQ" type="search" placeholder="探す（動かす・色・キー …）"
+           autocomplete="off" aria-label="単語を探す">
   </div>
   <div id="dictList"></div>
-  <div class="dict-foot">えらぶと カーソルの ところに はいります</div>
+  <div class="dict-foot">選ぶとカーソルの所に入ります</div>
 </aside>
 
-<!-- 読みこみに失敗したときに、まっくらなまま放置しないための保険 -->
+<!-- 読みこみに失敗したときに、真っ暗なまま放置しないための保険 -->
 <div id="fatal" hidden></div>
 
 <script type="module">
@@ -113,7 +215,7 @@
   import('./src/app.js').catch((err) => {
     const f = document.getElementById('fatal');
     f.hidden = false;
-    f.textContent = '読みこみに しっぱいしました: ' + (err && err.message ? err.message : err);
+    f.textContent = '読みこみに失敗しました: ' + (err && err.message ? err.message : err);
   });
 </script>
 

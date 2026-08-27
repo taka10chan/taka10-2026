@@ -12,14 +12,22 @@
 //       角度は 「度」。むき は y じく まわり、かたむき は x じく まわり。
 //       むき = 0 のとき、その もの の まえ は -z の ほう。
 //
-//   ● ここで なげる エラーは かならず「日本語のメッセージだけ」。
-//     何行目かは lang.js が つけてくれるので ここでは 書きません。
-//     さいごの 安全あみ（つつむ）で、英語のエラーは ぜんぶ 日本語に なおします。
+//   ● ここで投げるエラーは かならず「日本語のメッセージだけ」。
+//     何行目かは lang.js がつけてくれるので、ここでは書きません。
+//     最後の安全網（つつむ）で、英語のエラーは全部 日本語に直します。
+//
+//   ● 表記（SPEC2 A）
+//       組み込みのことばは「漢字が正式」。ひらがなも今までどおり動きます。
+//       builtins() は同じ関数を漢字とひらがなの2つのキーに入れて返します。
+//       画面に出す文（エラー・ログ）は、ふつうの日本語（漢字あり・分かち書きなし）。
 // ============================================================================
 
 // three.js は web/lib/three.module.js（r169）に あります。CDN は つかいません。
 // このファイルは web/make/src/ に あるので、2つ 上の web/ から たどります。
 import * as THREE from '../../lib/three.module.js';
+
+// R15 のアバター（SPEC2 C）。15パーツの組み立ては avatar.js が持っています。
+import { buildR15, 歩きポーズ } from './avatar.js';
 
 // ---------------------------------------------------------------------------
 // 定数
@@ -49,39 +57,183 @@ const フォント =
   '"Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", ' +
   '"Yu Gothic", "Meiryo", sans-serif';
 
-/** いろの なまえ → 色コード の表（SPEC 5章 と おなじ ならび） */
-const いろの表 = {
-  あか: '#ff4d4d',
-  あお: '#4d7dff',
-  みどり: '#3fd45f',
-  きいろ: '#ffe14d',
-  しろ: '#ffffff',
-  くろ: '#222428',
-  みずいろ: '#5fd8ff',
+/** 色の名前 → 色コードの表（SPEC2 A-5。漢字が正式） */
+const 色の表 = {
+  赤: '#ff4d4d',
+  青: '#4d7dff',
+  緑: '#3fd45f',
+  黄: '#ffe14d',
+  白: '#ffffff',
+  黒: '#222428',
+  水色: '#5fd8ff',
   ピンク: '#ff7fc4',
   オレンジ: '#ff9a3c',
-  むらさき: '#b06cff',
-  はいいろ: '#9aa5b1',
-  ちゃいろ: '#a56b3c',
-  こん: '#26356e',
+  紫: '#b06cff',
+  灰色: '#9aa5b1',
+  茶色: '#a56b3c',
+  紺: '#26356e',
 };
 
-/** キー名（ことだま） → KeyboardEvent.code の たいおう */
+/** 色のひらがな別名（今までどおり動く。消してはいけない） */
+const 色の別名 = {
+  あか: '赤', あお: '青', みどり: '緑', きいろ: '黄', 黄色: '黄',
+  しろ: '白', くろ: '黒', みずいろ: '水色', むらさき: '紫',
+  はいいろ: '灰色', 灰いろ: '灰色', ちゃいろ: '茶色', 茶いろ: '茶色', こん: '紺',
+};
+
+/** キー名（漢字が正式） → KeyboardEvent.code の対応 */
 const キーの表 = {
-  みぎ: ['ArrowRight'],
-  ひだり: ['ArrowLeft'],
-  うえ: ['ArrowUp'],
-  した: ['ArrowDown'],
+  右: ['ArrowRight'],
+  左: ['ArrowLeft'],
+  上: ['ArrowUp'],
+  下: ['ArrowDown'],
   スペース: ['Space'],
   エンター: ['Enter', 'NumpadEnter'],
   シフト: ['ShiftLeft', 'ShiftRight'],
 };
 
+/** キー名のひらがな別名（今までどおり動く） */
+const キーの別名 = {
+  みぎ: '右', ひだり: '左', うえ: '上', した: '下',
+  みぎキー: '右', ひだりキー: '左', うえキー: '上', したキー: '下',
+  すぺーす: 'スペース', えんたー: 'エンター', しふと: 'シフト',
+};
+
+/**
+ * 「もの」の見えるフィールド（SPEC2 A-6）。漢字が正式、ひらがなも動く。
+ * 中では ひらがなの名前にしまって、漢字の名前は出し入れの窓口にします。
+ */
+const フィールドの別名 = {
+  横: 'よこ',
+  高さ: 'たかさ',
+  奥行き: 'おくゆき',
+  色: 'いろ',
+  向き: 'むき',
+  傾き: 'かたむき',
+  見える: 'みえる',
+};
+
+// ---------------------------------------------------------------------------
+// ひらがな・カタカナ・漢字を そろえる（SPEC2 F）
+//
+//   「ハコ」と「はこ」は同じもの。名前を探すときは2段階にします。
+//     1. まず そのままの字で探す（速い。ふつうはここで見つかる）
+//     2. 見つからなければ「そろえた形」で探す
+//   そろえた形 ＝ 半角カタカナを全角に直し、カタカナをひらがなに直したもの。
+//   長音符「ー」はそのまま。「ヴ」は「ゔ」。「ヷヸヹヺ」はそのまま。
+// ---------------------------------------------------------------------------
+
+/** 半角カタカナ → 全角カタカナ（濁点・半濁点はくっつける） */
+const 半角カナのならび = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝｧｨｩｪｫｯｬｭｮｰ｡｢｣､･';
+const 全角カナのならび = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンァィゥェォッャュョー。「」、・';
+
+/** 濁点が つけられる かな（つけると 1つ うしろの 字に なる） */
+const 濁点がつく = 'ウカキクケコサシスセソタチツテトハヒフヘホ';
+/** 半濁点が つけられる かな（つけると 2つ うしろの 字に なる） */
+const 半濁点がつく = 'ハヒフヘホ';
+
+function 半角カナを全角に(s) {
+  let 出 = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    const い = 半角カナのならび.indexOf(c);
+    let 字 = (い >= 0) ? 全角カナのならび[い] : c;
+    const つぎ = s[i + 1];
+    if (つぎ === 'ﾞ' || つぎ === '゛') {
+      if (字 === 'ウ') { 字 = 'ヴ'; i++; }
+      else if (濁点がつく.indexOf(字) >= 0) { 字 = String.fromCharCode(字.charCodeAt(0) + 1); i++; }
+    } else if (つぎ === 'ﾟ' || つぎ === '゜') {
+      if (半濁点がつく.indexOf(字) >= 0) { 字 = String.fromCharCode(字.charCodeAt(0) + 2); i++; }
+    }
+    出 += 字;
+  }
+  return 出;
+}
+
+/**
+ * 名前を「そろえた形」にする。
+ * 半角カタカナを全角に直してから、カタカナをひらがなに直す。
+ * 前後の空白は取る。文字列でなければ空文字。
+ */
+function そろえる(s) {
+  if (typeof s !== 'string') return '';
+  const t = 半角カナを全角に(s).trim();
+  let 出 = '';
+  for (const ch of t) {
+    const c = ch.codePointAt(0);
+    // ァ(30A1) 〜 ヶ(30F6) だけ ひらがなに する。ヷヸヹヺ と ー は そのまま
+    if (c >= 0x30a1 && c <= 0x30f6) 出 += String.fromCodePoint(c - 0x60);
+    else 出 += ch;
+  }
+  return 出;
+}
+
+/** { そろえた形: 正式な名前 } の索引を作る */
+function そろえ索引を作る(正式の表, 別名の表) {
+  const 索引 = Object.create(null);
+  for (const k of Object.keys(正式の表)) 索引[そろえる(k)] = k;
+  for (const k of Object.keys(別名の表 || {})) 索引[そろえる(k)] = 別名の表[k];
+  return 索引;
+}
+
+const 色のそろえ索引 = そろえ索引を作る(色の表, 色の別名);
+const キーのそろえ索引 = そろえ索引を作る(キーの表, キーの別名);
+
+/**
+ * 保存されている名前（もよう・モデル・アニメ・ワールドのもの）を、
+ * カタカナ・ひらがなの ちがいを こえて 探す。
+ * @returns {string|null} 見つかった 本当のキー
+ */
+function 名前をさがす(表, なまえ) {
+  if (!表 || typeof なまえ !== 'string') return null;
+  if (Object.prototype.hasOwnProperty.call(表, なまえ)) return なまえ;
+  const s = なまえ.trim();
+  if (s !== なまえ && Object.prototype.hasOwnProperty.call(表, s)) return s;
+  const そ = そろえる(なまえ);
+  if (そ === '') return null;
+  for (const k of Object.keys(表)) {
+    if (そろえる(k) === そ) return k;
+  }
+  return null;
+}
+
+/** Map から 同じように 探す */
+function 名前をさがすMap(表, なまえ) {
+  if (!表 || typeof なまえ !== 'string') return null;
+  if (表.has(なまえ)) return なまえ;
+  const s = なまえ.trim();
+  if (表.has(s)) return s;
+  const そ = そろえる(なまえ);
+  if (そ === '') return null;
+  for (const k of 表.keys()) {
+    if (そろえる(k) === そ) return k;
+  }
+  return null;
+}
+
+/**
+ * R15 の 15パーツのならび（SPEC2 C-2）。
+ * アニメ部屋の track.part の 0〜14 が この順番に対応します。
+ */
+const R15のならび = [
+  '頭', '上胴', '下胴',
+  '右上腕', '右前腕', '右手',
+  '左上腕', '左前腕', '左手',
+  '右腿', '右脛', '右足',
+  '左腿', '左脛', '左足',
+];
+
+/** 色(プレイヤー, "赤") で色が変わるパーツ（頭・手・足はそのまま） */
+const R15のいろがつく = [
+  '上胴', '下胴',
+  '右上腕', '右前腕', '左上腕', '左前腕',
+  '右腿', '右脛', '左腿', '左脛',
+];
+
 /** プレイヤーの 見ための いろ */
 const はだいろ = '#f2c9a0';
 const シャツのいろ = '#3a7ad6';
-const ズボンのいろ = '#2f3f6b';
-const めのいろ = '#26333f';
+const ズボンのいろ = '#37414d';
 
 /** さいしょの そら と きり */
 const きほんのそら = '#8fd3ff';
@@ -106,7 +258,7 @@ function エラー(メッセージ) {
   return e;
 }
 
-/** 値を エラーメッセージ用に 見せる（長すぎたら きる） */
+/** 値をエラーの文で見せる（長すぎたら切る） */
 function 見せる(v) {
   if (v === null || v === undefined) return 'なし';
   if (v === true) return 'はい';
@@ -118,35 +270,120 @@ function 見せる(v) {
   }
   if (Array.isArray(v)) return 'リスト';
   if (v && v.__もの) return 'もの';
-  if (typeof v === 'function') return 'てじゅん';
-  return 'よく わからないもの';
+  if (typeof v === 'function') return '手順';
+  return 'よく分からないもの';
 }
 
-/** 引数の いちを 日本語で（1 → 「1ばんめ」） */
+/** 引数の位置を日本語で（1 → 「1つ目」） */
 function ばんめ(i) {
-  return i + 'ばんめ';
+  return i + 'つ目';
 }
 
 // ---------------------------------------------------------------------------
-// 引数の チェック（だめなら ぜんぶ 日本語の エラー）
+// 使い方の表（エラーの文の「→ 使い方: …」に出す。SPEC2 A-7）
 // ---------------------------------------------------------------------------
 
-/** 「もの」かどうか しらべる */
-function ものチェック(ことば, v) {
-  if (v && typeof v === 'object' && v.__もの === true) return v;
-  throw エラー(
-    ことば + ' には ものを わたしてね。はこ() や たま() が かえす ものです' +
-      '（いま わたされたのは ' + 見せる(v) + '）'
+const 使い方の表 = {
+  '箱': '箱(x, y, z, 横, 高さ, 奥行き)',
+  '玉': '玉(x, y, z, 半径)',
+  '筒': '筒(x, y, z, 半径, 高さ)',
+  '看板': '看板(x, y, z, 文字)',
+  '自分のモデル': '自分のモデル(x, y, z, 名前)',
+  '消す': '消す(もの)',
+  '動かす': '動かす(もの, x, y, z)',
+  '置く': '置く(もの, x, y, z)',
+  '前へ': '前へ(もの, 数)',
+  '後ろへ': '後ろへ(もの, 数)',
+  '右へ': '右へ(もの, 数)',
+  '左へ': '左へ(もの, 数)',
+  '上へ': '上へ(もの, 数)',
+  '下へ': '下へ(もの, 数)',
+  '回す': '回す(もの, 度)',
+  '傾ける': '傾ける(もの, 度)',
+  '向ける': '向ける(もの, 度)',
+  '向かせる': '向かせる(もの, 相手)',
+  '色': '色(もの, "赤")',
+  '大きさ': '大きさ(もの, 倍)',
+  '隠す': '隠す(もの)',
+  '見せる': '見せる(もの)',
+  '模様': '模様(もの, 名前)',
+  '空の色': '空の色("水色")',
+  '地面を作る': '地面を作る("緑", 広さ)',
+  '霧': '霧("白", 濃さ)',
+  '重力': '重力(もの, はい)',
+  '壁にする': '壁にする(もの)',
+  '速さ': '速さ(もの, x, y, z)',
+  'ジャンプ': 'ジャンプ(もの, 強さ)',
+  '床にいる': '床にいる(もの)',
+  'カメラを置く': 'カメラを置く(x, y, z)',
+  'カメラを向ける': 'カメラを向ける(x, y, z)',
+  'カメラを向かせる': 'カメラを向かせる(もの)',
+  'カメラを付ける': 'カメラを付ける(もの, 後ろ, 高さ)',
+  'カメラの中に': 'カメラの中に(もの)',
+  '押されてる': '押されてる("右")',
+  '押した': '押した("スペース")',
+  'ぶつかってる': 'ぶつかってる(A, B)',
+  '距離': '距離(A, B)',
+  '乱数': '乱数(1, 6)',
+  '整数': '整数(x)',
+  '絶対値': '絶対値(x)',
+  '最大': '最大(a, b)',
+  '最小': '最小(a, b)',
+  '平方根': '平方根(x)',
+  'サイン': 'サイン(度)',
+  'コサイン': 'コサイン(度)',
+  '角度': '角度(横, 奥行き)',
+  '長さ': '長さ(文字かリスト)',
+  '加える': '加える(リスト, もの)',
+  '取り除く': '取り除く(リスト, もの)',
+  '待つ': '待つ(秒)',
+  '音': '音("ピコ")',
+  '点数': '点数(数)',
+  'メッセージ': 'メッセージ("文字")',
+  'ゲーム終了': 'ゲーム終了("文字")',
+  'アニメ': 'アニメ(もの, 名前)',
+  'アニメを止める': 'アニメを止める(もの)',
+  'プレイヤーの姿': 'プレイヤーの姿(名前)',
+  '速さを変える': '速さを変える(歩く, 走る, ジャンプ)',
+  '一人称': '一人称(はい)',
+  '探す': '探す("名前")',
+};
+
+/** 「→ 使い方: …」の一行を作る（分からなければ空文字） */
+function 使い方(ことば) {
+  const u = 使い方の表[ことば];
+  return u ? '\n  → 使い方: ' + u : '';
+}
+
+/** 引数が足りないときの決まり文句 */
+function たりない(ことば, い) {
+  return エラー(
+    '「' + ことば + '」に渡すものが足りません（' + い + 'つ目がありません）。' + 使い方(ことば)
   );
 }
 
-/** 数に する。もじでも 数に できるなら して あげる */
+// ---------------------------------------------------------------------------
+// 引数のチェック（だめなら全部 日本語のエラー）
+// ---------------------------------------------------------------------------
+
+/** 「もの」かどうか調べる */
+function ものチェック(ことば, v, い) {
+  if (v && typeof v === 'object' && v.__もの === true) return v;
+  if (v === undefined) throw たりない(ことば, い || 1);
+  throw エラー(
+    '「' + ことば + '」には「もの」を渡してください。' +
+      '箱() や 玉() が返すものです（渡されたのは ' + 見せる(v) + '）。' + 使い方(ことば)
+  );
+}
+
+/** 数にする。文字でも数にできるならしてあげる */
 function すうチェック(ことば, い, v) {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (v === undefined) throw たりない(ことば, い);
   if (typeof v === 'boolean') {
     throw エラー(
-      ことば + ' の ' + ばんめ(い) + ' には すうじを わたしてね。' +
-        見せる(v) + ' は すうじでは ありません'
+      '「' + ことば + '」の' + ばんめ(い) + 'には数を渡してください。' +
+        見せる(v) + ' は数ではありません。' + 使い方(ことば)
     );
   }
   if (typeof v === 'string') {
@@ -162,12 +399,12 @@ function すうチェック(ことば, い, v) {
     }
   }
   throw エラー(
-    ことば + ' の ' + ばんめ(い) + ' には すうじを わたしてね。' +
-      見せる(v) + ' は すうじに できません'
+    '「' + ことば + '」の' + ばんめ(い) + 'には数を渡してください。' +
+      見せる(v) + ' は数にできません。' + 使い方(ことば)
   );
 }
 
-/** もじに する（数や はい・いいえ も もじに して あげる） */
+/** 文字にする（数や はい・いいえ も文字にしてあげる） */
 function もじチェック(ことば, い, v) {
   if (typeof v === 'string') return v;
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
@@ -175,42 +412,54 @@ function もじチェック(ことば, い, v) {
   if (v === false) return 'いいえ';
   if (v === null || v === undefined) return '';
   throw エラー(
-    ことば + ' の ' + ばんめ(い) + ' には もじを わたしてね。' +
-      見せる(v) + ' は もじに できません'
+    '「' + ことば + '」の' + ばんめ(い) + 'には文字を渡してください。' +
+      見せる(v) + ' は文字にできません。' + 使い方(ことば)
   );
 }
 
 /** リストかどうか */
 function リストチェック(ことば, い, v) {
   if (Array.isArray(v)) return v;
+  if (v === undefined) throw たりない(ことば, い);
   throw エラー(
-    ことば + ' の ' + ばんめ(い) + ' には リストを わたしてね。' +
-      '[1, 2, 3] のように かくと リストに なります' +
-      '（いま わたされたのは ' + 見せる(v) + '）'
+    '「' + ことば + '」の' + ばんめ(い) + 'にはリストを渡してください。' +
+      '[1, 2, 3] のように書くとリストになります（渡されたのは ' + 見せる(v) + '）。' + 使い方(ことば)
   );
 }
 
-/** いろの なまえ や 色コードを #rrggbb に なおす。だめなら 日本語エラー */
+/**
+ * 色の名前や色コードを #rrggbb に直す。だめなら日本語のエラー。
+ * 漢字・ひらがな・カタカナ、どれでも通す（SPEC2 F）。
+ */
 function いろに直す(ことば, v) {
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (Object.prototype.hasOwnProperty.call(いろの表, s)) return いろの表[s];
-    if (/^#[0-9a-fA-F]{3}$/.test(s) || /^#[0-9a-fA-F]{6}$/.test(s)) return s;
-  }
+  const c = 色コードにする(v);
+  if (c) return c;
+  if (v === undefined) throw たりない(ことば, 1);
   throw エラー(
-    ことば + ' には いろの なまえを わたしてね。つかえるのは ' +
-      Object.keys(いろの表).join(' ') + ' か #ff0000 のような かきかたです' +
-      '（いま わたされたのは ' + 見せる(v) + '）'
+    '「' + ことば + '」には色の名前を渡してください。使えるのは ' +
+      Object.keys(色の表).join(' ') + ' か #ff0000 のような書き方です' +
+      '（渡されたのは ' + 見せる(v) + '）。' + 使い方(ことば)
   );
 }
 
-/** どんな 値が 来ても いろに する（えがくときに つかう。ぜったい 落ちない） */
+/** 色の名前・色コードを #rrggbb に直す。分からなければ null */
+function 色コードにする(v) {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  // 1段階目: そのままの字で探す
+  if (Object.prototype.hasOwnProperty.call(色の表, s)) return 色の表[s];
+  if (Object.prototype.hasOwnProperty.call(色の別名, s)) return 色の表[色の別名[s]];
+  if (/^#[0-9a-fA-F]{3}$/.test(s) || /^#[0-9a-fA-F]{6}$/.test(s)) return s;
+  // 2段階目: そろえた形（カタカナ→ひらがな）で探す
+  const そ = 色のそろえ索引[そろえる(s)];
+  if (そ) return 色の表[そ];
+  return null;
+}
+
+/** どんな値が来ても色にする（描くときに使う。絶対に落ちない） */
 function いろ安全(v, きめた値) {
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (Object.prototype.hasOwnProperty.call(いろの表, s)) return いろの表[s];
-    if (/^#[0-9a-fA-F]{3}$/.test(s) || /^#[0-9a-fA-F]{6}$/.test(s)) return s;
-  }
+  const c = 色コードにする(v);
+  if (c) return c;
   return きめた値 || '#ffffff';
 }
 
@@ -248,7 +497,7 @@ function 文字にする(v) {
       ' y=' + Math.round(数にする(v.y, 0)) +
       ' z=' + Math.round(数にする(v.z, 0)) + ')';
   }
-  if (typeof v === 'function') return '(てじゅん)';
+  if (typeof v === 'function') return '(手順)';
   return String(v);
 }
 
@@ -274,50 +523,54 @@ function キー名にする(e) {
   return null;
 }
 
-/** ユーザーが 書いた キー名を、ないぶの 名前に なおす */
+/** 使えるキーの一覧（エラーの文に出す） */
+const キーの案内 = '右 左 上 下 スペース エンター シフト か A〜Z、0〜9 が使えます';
+
+/**
+ * 使う人が書いたキー名を、中で使う名前（漢字）に直す。
+ * 漢字・ひらがな・カタカナ、半角カタカナ、どれでも通す（SPEC2 F）。
+ */
 function キー名を直す(ことば, キー) {
   if (typeof キー !== 'string') {
     if (typeof キー === 'number' && Number.isInteger(キー) && キー >= 0 && キー <= 9) {
       return String(キー);
     }
+    if (キー === undefined) throw たりない(ことば, 1);
     throw エラー(
-      ことば + ' には キーの なまえを もじで わたしてね。' +
-        'みぎ ひだり うえ した スペース エンター シフト か A〜Z、0〜9 が つかえます' +
-        '（いま わたされたのは ' + 見せる(キー) + '）'
+      '「' + ことば + '」にはキーの名前を文字で渡してください。' + キーの案内 +
+        '（渡されたのは ' + 見せる(キー) + '）。' + 使い方(ことば)
     );
   }
-  const s = キー
+  const s = 半角カナを全角に(キー)
     .trim()
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+  // 1段階目: そのままの字で探す
   if (Object.prototype.hasOwnProperty.call(キーの表, s)) return s;
+  if (Object.prototype.hasOwnProperty.call(キーの別名, s)) return キーの別名[s];
   if (/^[a-zA-Z]$/.test(s)) return s.toUpperCase();
   if (/^[0-9]$/.test(s)) return s;
-  const べつめい = {
-    'みぎキー': 'みぎ', 'ひだりキー': 'ひだり', 'うえキー': 'うえ', 'したキー': 'した',
-    'すぺーす': 'スペース', 'えんたー': 'エンター', 'しふと': 'シフト',
-    '右': 'みぎ', '左': 'ひだり', '上': 'うえ', '下': 'した',
-  };
-  if (Object.prototype.hasOwnProperty.call(べつめい, s)) return べつめい[s];
+  // 2段階目: そろえた形（カタカナ→ひらがな）で探す
+  const そ = キーのそろえ索引[そろえる(s)];
+  if (そ) return そ;
   throw エラー(
-    ことば + ' に 「' + キー + '」という キーは ありません。' +
-      'みぎ ひだり うえ した スペース エンター シフト か A〜Z、0〜9 が つかえます'
+    '「' + ことば + '」に「' + キー + '」というキーはありません。' + キーの案内
   );
 }
 
 /**
- * 組み込みことばを つつんで、
- * 「日本語じゃない エラー」が 外に 出ないようにする さいごの 安全あみ。
+ * 組み込みのことばをつつんで、
+ * 「日本語じゃないエラー」が外に出ないようにする最後の安全網。
  */
 function つつむ(名, 関数) {
   const f = function (...args) {
     try {
       return 関数.apply(null, args);
     } catch (e) {
-      if (e && e.にほんご) throw e;                  // こちらで つくった 日本語エラー
-      if (e && e.name === 'KotodamaError') throw e;  // lang.js の エラーは そのまま
-      // 英語の エラー（TypeError など）は 日本語に 言いかえる
+      if (e && e.にほんご) throw e;                  // こちらで作った日本語のエラー
+      if (e && e.name === 'KotodamaError') throw e;  // lang.js のエラーはそのまま
+      // 英語のエラー（TypeError など）は日本語に言いかえる
       throw エラー(
-        '「' + 名 + '」の つかいかたが ちがうみたい。単語帳で つかいかたを みてみよう'
+        '「' + 名 + '」の使い方が違うようです。単語帳で使い方を見てみてください。' + 使い方(名)
       );
     }
   };
@@ -346,6 +599,35 @@ function はこにする(o) {
     minY: y - hy, maxY: y + hy,
     minZ: z - hz, maxZ: z + hz,
   };
+}
+
+/**
+ * 「もの」に 漢字のフィールド名（横 高さ 奥行き 色 向き 傾き 見える）を つける。
+ * 中身は ひらがなの名前1つだけ。漢字は その出し入れの窓口なので、
+ * `o.高さ = 3` と書けば `o.たかさ` も 3 になります（SPEC2 A-6）。
+ */
+function フィールドの別名をつける(o) {
+  for (const 漢字 of Object.keys(フィールドの別名)) {
+    const かな = フィールドの別名[漢字];
+    Object.defineProperty(o, 漢字, {
+      enumerable: true,
+      configurable: true,
+      get() { return this[かな]; },
+      set(v) { this[かな] = v; },
+    });
+  }
+}
+
+/**
+ * ワールドのものの名前が、変数として使える形か（SPEC2 B-3）。
+ * 空白・記号・数字はじまりは だめ。ひらがな・カタカナ・漢字・英数字は よい。
+ * （ふだんは画面側が守っていますが、こわれたデータでも落ちないように ここでも見ます）
+ */
+function 使える名前か(s) {
+  if (typeof s !== 'string' || s === '') return false;
+  if (s === '__proto__' || s === 'constructor' || s === 'prototype') return false;
+  if (/^[0-9０-９]/.test(s)) return false;
+  return /^[A-Za-z_0-9々〆ーぁ-ゖァ-ヺ一-鿿豈-﫿]+$/.test(s);
 }
 
 /** 2つの 箱が かさなっているか */
@@ -442,9 +724,11 @@ export class Game {
     this._おした = new Set();      // このフレームの「おした しゅんかん」
     this._マウスX = 画面よこ / 2;
     this._マウスY = 画面たて / 2;
-    this._クリックちゅう = false;
-    this._クリックまち = false;
-    this._クリックした = false;
+    // マウスのボタンは 0=左 1=中 2=右 の3つに 分ける（SPEC2 E）。
+    // 指（タッチ）は 左クリック あつかい。
+    this._ボタン中 = [false, false, false];    // いま 押しっぱなし
+    this._ボタン待ち = [false, false, false];  // つぎの beginFrame で「押した瞬間」にする
+    this._ボタン押した = [false, false, false];// このフレームの「押した瞬間」
     this._みまわしdx = 0;          // このフレームで マウスが うごいた量
     this._みまわしdy = 0;
     this._ポインタロック中 = false;
@@ -458,6 +742,13 @@ export class Game {
     // --- three.js の れんだらー（1回だけ つくる） ---
     this.renderer = null;
     this._レンダラを作る();
+
+    /**
+     * 触れたとき（SPEC2 B-4）。app.js が入れかえる。
+     *   game.onTouch = (もの, 相手) => {}
+     * 新しく重なった瞬間に1回だけ呼びます。
+     */
+    this.onTouch = () => {};
 
     // --- reset() が つかう いれもの ---
     this.もの一覧 = [];
@@ -525,11 +816,18 @@ export class Game {
     this._かべ一覧 = [];
     this._グリッド = null;
 
+    // --- ワールド（SPEC2 B）。buildWorld() で 中身が 入る ---
+    this.世界のもの = new Map();     // id → もの（edit.js が つかう。SPEC2 D-3）
+    this.世界の名前 = new Map();     // 名前 → もの（探す() が つかう）
+    this._いま触れてる = new Set();  // このフレーム 重なっている 組み合わせ
+    this._まえ触れてた = new Set();  // 1つ まえの フレーム
+    this._触れた時刻 = new Map();    // 組み合わせ → さいごに 鳴らした 秒
+
     // 入力の「おした しゅんかん」だけ けす（おしっぱなしは のこす）
     this._おした.clear();
     this._おしたまち.clear();
-    this._クリックした = false;
-    this._クリックまち = false;
+    this._ボタン押した = [false, false, false];
+    this._ボタン待ち = [false, false, false];
     this._みまわしdx = 0;
     this._みまわしdy = 0;
 
@@ -598,7 +896,6 @@ export class Game {
     this._はしるはやさ = きほんのはしる;
     this._ジャンプのつよさ = きほんのジャンプ;
     this._あるき位相 = 0;
-    this._ふりはば = 0;
 
     // さいしょの 1枚を えがいておく（▶ を おした しゅんかんに 絵が 出る）
     this._えがく();
@@ -713,72 +1010,51 @@ export class Game {
   }
 
   /**
-   * プレイヤー … まるっこい 人。原点の うえ（0, 4, 0）に 立っている。
+   * プレイヤー … ロブロックスの R15 と同じ 15パーツの人（SPEC2 C）。
+   * 原点の上（0, 4, 0）に立っています。
    *
-   *   あたま … 球（はんけい 0.7、はだいろ）
-   *   からだ … カプセル（青いシャツ）
-   *   うで2本・あし2本 … ほそい カプセル。あるくと 前後に ふる。
-   *   ぜんぶで たかさ 5（-2.5 〜 +2.5）。
+   *   組み立ては avatar.js の buildR15() が持っています。
+   *   buildR15() の group は「足元が y=0」なので、
+   *   ここでは 外側の Group に入れて 高さの半分だけ下げ、
+   *   もの の x,y,z（＝まんなか）と合うようにします。
+   *
+   *   parts の 15個は SPEC2 C-2 の順番（0〜14）で __モデルぶひん に入れます。
+   *   こうすると アニメ(プレイヤー, "…") が そのまま効きます。
    */
   _プレイヤーを作る() {
+    const A = buildR15({ はだ: はだいろ, シャツ: シャツのいろ, ズボン: ズボンのいろ });
+    const parts = (A && A.parts) ? A.parts : {};
+    const 高さ = Math.abs(数にする(A && A.高さ, 5)) || 5;
+    const 半径 = Math.abs(数にする(A && A.半径, 1)) || 1;
+
+    // 外側の Group。中身を 高さの半分だけ 下げて、まんなかを 原点に合わせる
     const G = new THREE.Group();
-
-    // --- ざいりょう（プレイヤー用に 5つだけ つくる） ---
-    const はだ = this._しげんにいれる(new THREE.MeshLambertMaterial({ color: new THREE.Color(はだいろ) }));
-    const シャツ = this._しげんにいれる(new THREE.MeshLambertMaterial({ color: new THREE.Color(シャツのいろ) }));
-    const ズボン = this._しげんにいれる(new THREE.MeshLambertMaterial({ color: new THREE.Color(ズボンのいろ) }));
-    const め = this._しげんにいれる(new THREE.MeshLambertMaterial({ color: new THREE.Color(めのいろ) }));
-
-    // --- ジオメトリ（まるっこく するため CapsuleGeometry を つかう） ---
-    const geoあたま = this._しげんにいれる(new THREE.SphereGeometry(0.7, 20, 14));
-    const geoからだ = this._しげんにいれる(this._カプセル(0.55, 1.0));
-    const geoうで = this._しげんにいれる(this._カプセル(0.24, 1.32));
-    const geoあし = this._しげんにいれる(this._カプセル(0.28, 1.44));
-    const geoめ = this._しげんにいれる(new THREE.SphereGeometry(0.11, 8, 6));
-
-    // からだ（すこし よこに ひろげて 人らしく）
-    const からだ = new THREE.Mesh(geoからだ, シャツ);
-    からだ.position.set(0, 0.35, 0);
-    からだ.scale.set(1.2, 1, 0.85);
-    からだ.__いろつく = true;
-    G.add(からだ);
-
-    // あたま
-    const あたま = new THREE.Mesh(geoあたま, はだ);
-    あたま.position.set(0, 1.8, 0);
-    G.add(あたま);
-
-    // め（前は -z がわ）
-    for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(geoめ, め);
-      e.position.set(0.26 * s, 1.9, -0.63);
-      G.add(e);
+    if (A && A.group) {
+      A.group.position.y = -高さ / 2;
+      G.add(A.group);
+      this._しげんをひろう(A.group);
     }
 
-    // うで（かたの ところで まわすので、いれものの Group を つくる）
-    const うで = [];
-    for (const s of [-1, 1]) {
-      const ピボット = new THREE.Group();
-      ピボット.position.set(0.78 * s, 1.2, 0);
-      const m = new THREE.Mesh(geoうで, シャツ);
-      m.position.set(0, -0.9, 0);
-      m.__いろつく = true;
-      ピボット.add(m);
-      G.add(ピボット);
-      うで.push(ピボット);
+    // 15パーツを SPEC2 C-2 の順番に ならべる（アニメの part 番号 0〜14）
+    const ぶひん = [];
+    const もとしせい = [];
+    for (const 名 of R15のならび) {
+      const p = parts[名] || null;
+      ぶひん.push(p);
+      もとしせい.push(p ? {
+        px: p.position.x, py: p.position.y, pz: p.position.z,
+        rx: p.rotation.x, ry: p.rotation.y, rz: p.rotation.z,
+      } : null);
     }
 
-    // あし
-    const あし = [];
-    for (const s of [-1, 1]) {
-      const ピボット = new THREE.Group();
-      ピボット.position.set(0.32 * s, -0.5, 0);
-      const m = new THREE.Mesh(geoあし, ズボン);
-      m.position.set(0, -1.0, 0);
-      m.__いろつく = true;
-      ピボット.add(m);
-      G.add(ピボット);
-      あし.push(ピボット);
+    // 色(プレイヤー, "赤") で 色が変わるところに 印をつける。
+    // 直接の子の Mesh だけ（腕の先の 前腕などは 別のパーツなので さわらない）
+    for (const 名 of R15のいろがつく) {
+      const p = parts[名];
+      if (!p || !p.children) continue;
+      for (const c of p.children) {
+        if (c && c.isMesh) c.__いろつく = true;
+      }
     }
 
     G.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
@@ -786,29 +1062,32 @@ export class Game {
 
     const o = this._ものをつくる({
       x: 0, y: 4, z: 0,
-      よこ: 1.8, たかさ: 5, おくゆき: 1.2,
+      よこ: 半径 * 2, たかさ: 高さ, おくゆき: 半径 * 2,
       いろ: シャツのいろ,
       __かたち: 'プレイヤー',
       __mesh: G,
+      __きじゅん: { x: 半径 * 2, y: 高さ, z: 半径 * 2 },
       __じゅうりょく: true,
       __プレイヤー: true,
       __だんさ: 1.0,        // これ以下の 段差は のぼれる
-      __うで: うで,
-      __あし: あし,
+      __R15: parts,         // 歩きポーズ() に わたす
+      __モデルぶひん: ぶひん,
+      __もとしせい: もとしせい,
     });
     this.プレイヤー = o;
   }
 
-  /**
-   * カプセル（上下が まるい 柱）を つくる。
-   * three.js に CapsuleGeometry が あれば それを、なければ 球で だいたい 作る。
-   */
-  _カプセル(はんけい, まっすぐな長さ) {
-    if (typeof THREE.CapsuleGeometry === 'function') {
-      return new THREE.CapsuleGeometry(はんけい, まっすぐな長さ, 6, 12);
-    }
-    // ここに 来ることは まず ないが、ねんのため
-    return new THREE.SphereGeometry(はんけい, 12, 8);
+  /** group の中の geometry / material を 片づけの一覧に入れる（メモリを ふやさない） */
+  _しげんをひろう(group) {
+    if (!group || typeof group.traverse !== 'function') return;
+    const みた = new Set();
+    group.traverse((c) => {
+      if (c.geometry && !みた.has(c.geometry)) { みた.add(c.geometry); this._しげんにいれる(c.geometry); }
+      const m = c.material;
+      if (Array.isArray(m)) {
+        for (const mm of m) if (mm && !みた.has(mm)) { みた.add(mm); this._しげんにいれる(mm); }
+      } else if (m && !みた.has(m)) { みた.add(m); this._しげんにいれる(m); }
+    });
   }
 
   // =========================================================================
@@ -850,8 +1129,15 @@ export class Game {
       __もとしせい: null,       // その ぶひんの もとの いち・むき
       __アニメ: null,           // { なまえ, データ, じかん }
       __プレイヤー: false,
+      // --- ワールド用（SPEC2 B）---
+      __世界id: null,           // さくひんの objects の id
+      __名前: null,             // ワールド一覧での 名前
+      __触れる: false,          // 「触れたとき」を しらべる 印（コードが 入っていたら true）
       __id: this._つぎのID++,
     };
+    // 漢字の フィールド名（横 高さ 奥行き 色 向き 傾き 見える）を つける。
+    // Object.assign より 先に つけて、どちらの つづりで わたされても 通るようにする。
+    フィールドの別名をつける(もの);
     Object.assign(もの, データ);
 
     もの.__もとよこ = 数にする(もの.よこ, 1);
@@ -870,8 +1156,8 @@ export class Game {
       if (!this._上限警告ずみ) {
         this._上限警告ずみ = true;
         this._ログ(
-          '⚠ ものが ' + ものの上限 + 'こを こえたので、これいじょう 作れません。' +
-            'いらなくなった ものは けす() で けしてね'
+          '⚠ ものが ' + ものの上限 + '個を超えたので、これ以上は作れません。' +
+            'いらなくなったものは 消す() で消してください。'
         );
       }
       もの.__いきてる = false;
@@ -886,7 +1172,7 @@ export class Game {
 
   /** はこ・たま・つつ のような、きほんの かたちの もの を つくる */
   _かたちをつくる(かたち, geo, データ) {
-    const いろ = データ.いろ || いろの表.しろ;
+    const いろ = データ.いろ || 色の表.白;
     const mesh = new THREE.Mesh(geo, this._ざいりょうを取る(いろ, null));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -915,14 +1201,16 @@ export class Game {
     } catch (e) {
       表 = {};
     }
-    const d = 表 && 表[なまえ];
+    // ひらがな・カタカナのちがいを こえて 探す（SPEC2 F）
+    const かぎ = 名前をさがす(表, なまえ);
+    const d = (かぎ !== null) ? 表[かぎ] : null;
     if (!d || !d.px || !d.w || !d.h) {
       const ある = 表 ? Object.keys(表) : [];
       throw エラー(
-        '「' + なまえ + '」という もようは まだ ありません。' +
+        '「' + なまえ + '」という模様はまだありません。' +
         (ある.length
-          ? 'いま あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です'
-          : 'おえかき部屋で かいてから つかってね')
+          ? '今あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です。'
+          : '\n  → おえかき部屋で描いてから使ってください')
       );
     }
 
@@ -965,18 +1253,20 @@ export class Game {
     } catch (e) {
       表 = {};
     }
-    const d = 表 && 表[なまえ];
+    // ひらがな・カタカナのちがいを こえて 探す（SPEC2 F）
+    const かぎ = 名前をさがす(表, なまえ);
+    const d = (かぎ !== null) ? 表[かぎ] : null;
     if (!d || !Array.isArray(d.parts)) {
       const ある = 表 ? Object.keys(表) : [];
       throw エラー(
-        '「' + なまえ + '」という モデルは まだ ありません。' +
+        '「' + なまえ + '」というモデルはまだありません。' +
         (ある.length
-          ? 'いま あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です'
-          : 'モデリング部屋で つくってから つかってね')
+          ? '今あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です。'
+          : '\n  → モデリング部屋で作ってから使ってください')
       );
     }
     if (d.parts.length === 0) {
-      throw エラー('「' + なまえ + '」の モデルには ぶひんが 1つも ありません');
+      throw エラー('「' + なまえ + '」のモデルには部品が1つもありません。');
     }
 
     // --- ぶひんを ならべた Group を つくる ---
@@ -1064,14 +1354,16 @@ export class Game {
     } catch (e) {
       表 = {};
     }
-    const d = 表 && 表[なまえ];
+    // ひらがな・カタカナのちがいを こえて 探す（SPEC2 F）
+    const かぎ = 名前をさがす(表, なまえ);
+    const d = (かぎ !== null) ? 表[かぎ] : null;
     if (!d || !Array.isArray(d.tracks)) {
       const ある = 表 ? Object.keys(表) : [];
       throw エラー(
-        '「' + なまえ + '」という アニメは まだ ありません。' +
+        '「' + なまえ + '」というアニメはまだありません。' +
         (ある.length
-          ? 'いま あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です'
-          : 'アニメ部屋で つくってから つかってね')
+          ? '今あるのは ' + ある.map((n) => '「' + n + '」').join(' ') + ' です。'
+          : '\n  → アニメ部屋で作ってから使ってください')
       );
     }
 
@@ -1107,8 +1399,8 @@ export class Game {
     }
     if (tracks.length === 0) {
       throw エラー(
-        '「' + なまえ + '」の アニメには うごく ぶひんが 1つも ありません。' +
-          'アニメ部屋で キーを うってから つかってね'
+        '「' + なまえ + '」のアニメには動く部品が1つもありません。' +
+          '\n  → アニメ部屋でキーを打ってから使ってください'
       );
     }
 
@@ -1380,11 +1672,11 @@ export class Game {
 
     this._おした = new Set(this._おしたまち);
     this._おしたまち.clear();
-    this._クリックした = this._クリックまち;
-    this._クリックまち = false;
+    this._ボタン押した = this._ボタン待ち;
+    this._ボタン待ち = [false, false, false];
   }
 
-  /** ユーザーコードの あと。そうさ → 物理 → 絵 の じゅんばん */
+  /** ユーザーコードの あと。そうさ → 物理 → 触れたとき → 絵 の じゅんばん */
   endFrame() {
     const dt = this._dt || 0;
     try {
@@ -1392,17 +1684,150 @@ export class Game {
       this._ぶつりをすすめる(dt);  // おちる・ぶつかる（SPEC 4章）
       this._アニメ(dt);            // うで と あしを ふる
       this._カメラをすすめる(dt);
-      this._えがく();
     } catch (e) {
-      // 絵で 落ちても ゲームは とめない（英語の エラーを 外に 出さない）
+      // 物理で 落ちても ゲームは とめない（英語の エラーを 外に 出さない）
       if (typeof console !== 'undefined' && console.warn) {
         console.warn('[ことだま runtime]', e);
       }
     }
+
+    // 触れたとき（SPEC2 B-4）。ここで 使う人の コードが 動くので、
+    // エラーが 出たら いったん おぼえておいて、絵を かいてから 外に 出す。
+    let 触れエラー = null;
+    try {
+      this._触れたをしらべる();
+    } catch (e) {
+      触れエラー = e;
+    }
+
+    try {
+      this._えがく();
+    } catch (e) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[ことだま runtime]', e);
+      }
+    }
+
     this._おした.clear();
-    this._クリックした = false;
+    this._ボタン押した = [false, false, false];
     this._みまわしdx = 0;
     this._みまわしdy = 0;
+
+    if (触れエラー) throw 触れエラー;
+  }
+
+  // =========================================================================
+  // 9b. 触れたとき（SPEC2 B-4）
+  //
+  //   毎フレーム重なりを見て、新しく重なった瞬間に1回だけ onTouch を呼びます。
+  //   ・「壁」が OFF でも鳴る（すり抜けながら反応できる。コインなど）
+  //   ・同じ組み合わせは 0.25秒に1回まで
+  //   ・プレイヤーも相手になる
+  //
+  //   ● 印の付け方（速さのために、呼ぶ側を しぼっています）
+  //       `もの.__触れる` が true のものだけが「触れたとき」の持ち主です。
+  //       buildWorld() が、さくひんの `コード` が空でないものに付けます。
+  //       （app.js / edit.js から `もの.__触れる = true` と書いても増やせます）
+  //       相手のほうは しぼりません。プレイヤーでも、コードで作った箱でも、
+  //       生きているものなら 何でも相手になります。
+  //
+  //   ● 速さ
+  //       1. `__触れる` が1つも無いフレームは、何もせずに すぐ帰ります。
+  //       2. 生きているものを x の小さい順に1回だけ並べます。
+  //       3. しらべるのは「__触れる が付いたもの」からだけ。
+  //          並べた列の中で x が重なる範囲だけを見ます（スイープ＆プルーン）。
+  //       全部の組み合わせは 見ません。
+  // =========================================================================
+
+  _触れたをしらべる() {
+    if (typeof this.onTouch !== 'function') return;
+
+    // --- 「触れたとき」を持つものが 1つも無ければ、すぐ帰る（いちばん速い道）---
+    const 主たち = [];
+    for (let i = 0; i < this.もの一覧.length; i++) {
+      const o = this.もの一覧[i];
+      if (o && o.__いきてる && o.__触れる) 主たち.push(o);
+    }
+    if (主たち.length === 0) {
+      if (this._いま触れてる.size) this._いま触れてる.clear();
+      if (this._まえ触れてた.size) this._まえ触れてた.clear();
+      return;
+    }
+
+    // --- 生きているものを x の小さい順に ならべる ---
+    const 一覧 = [];
+    for (let i = 0; i < this.もの一覧.length; i++) {
+      const o = this.もの一覧[i];
+      if (o && o.__いきてる) 一覧.push(o);
+    }
+    if (一覧.length < 2) return;
+
+    const はこ = new Map();
+    let さいだいはば = 0;
+    for (const o of 一覧) {
+      const b = はこにする(o);
+      はこ.set(o, b);
+      const w = b.maxX - b.minX;
+      if (w > さいだいはば) さいだいはば = w;
+    }
+    一覧.sort((a, c) => はこ.get(a).minX - はこ.get(c).minX);
+
+    const いま = this._いま触れてる;
+    const まえ = this._まえ触れてた;
+    const 時刻 = this._じかん;
+    const あいだ = 0.25;
+    const 出来事 = [];
+
+    for (const S of 主たち) {
+      const a = はこ.get(S);
+      if (!a) continue;
+      // x が重なりうる範囲だけを見る。
+      // ならびは minX の順なので、minX が (a.minX - さいだいはば) 以上のところから
+      // minX が a.maxX 未満のところまで。
+      let lo = 0, hi = 一覧.length;
+      const さかい = a.minX - さいだいはば;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (はこ.get(一覧[mid]).minX < さかい) lo = mid + 1;
+        else hi = mid;
+      }
+      for (let i = lo; i < 一覧.length; i++) {
+        const O = 一覧[i];
+        const b = はこ.get(O);
+        if (b.minX >= a.maxX) break;      // これより先は x で離れている
+        if (O === S) continue;
+        if (!かさなる(a, b)) continue;
+
+        const かぎ = S.__id + '>' + O.__id;
+        いま.add(かぎ);
+        if (まえ.has(かぎ)) continue;      // 前のフレームから ずっと重なっている
+
+        const さいご = this._触れた時刻.get(かぎ);
+        if (さいご !== undefined && 時刻 - さいご < あいだ) continue;
+        this._触れた時刻.set(かぎ, 時刻);
+        出来事.push(S, O);
+      }
+    }
+
+    // 「まえ」と「いま」を入れかえる（使いまわして ゴミを出さない）
+    this._まえ触れてた = いま;
+    まえ.clear();
+    this._いま触れてる = まえ;
+
+    // 古い記録を そうじする（ずっと遊んでいても ふくらまない）
+    if (this._触れた時刻.size > 4000) {
+      for (const [k, t] of this._触れた時刻) {
+        if (時刻 - t > あいだ * 4) this._触れた時刻.delete(k);
+      }
+    }
+
+    // 呼ぶのは しらべ終わってから（中で 消す() されても こわれない）
+    for (let i = 0; i < 出来事.length; i += 2) {
+      const 主 = 出来事[i];
+      const 相手 = 出来事[i + 1];
+      if (!主.__いきてる) continue;
+      this.onTouch(主, 相手);
+    }
   }
 
   // =========================================================================
@@ -1415,10 +1840,10 @@ export class Game {
 
     // --- キーと ゆびから 前後（f）と 左右（r）を つくる ---
     let f = 0, r = 0;
-    if (this._おされてる.has('W') || this._おされてる.has('うえ')) f += 1;
-    if (this._おされてる.has('S') || this._おされてる.has('した')) f -= 1;
-    if (this._おされてる.has('D') || this._おされてる.has('みぎ')) r += 1;
-    if (this._おされてる.has('A') || this._おされてる.has('ひだり')) r -= 1;
+    if (this._おされてる.has('W') || this._おされてる.has('上')) f += 1;
+    if (this._おされてる.has('S') || this._おされてる.has('下')) f -= 1;
+    if (this._おされてる.has('D') || this._おされてる.has('右')) r += 1;
+    if (this._おされてる.has('A') || this._おされてる.has('左')) r -= 1;
     if (this._スティック.id !== null) {
       f = -this._スティック.dy;
       r = this._スティック.dx;
@@ -1643,26 +2068,31 @@ export class Game {
       if (o && o.__いきてる && o.__アニメ) this._アニメをすすめる(o, dt);
     }
 
-    // --- さいしょから いる プレイヤーの 腕・脚の ふり ---
-    //   プレイヤーのすがた() で 見ためを 入れかえたら __うで が なくなるので、
-    //   ここは 自然に 止まる。
+    // --- 最初からいる R15 プレイヤーの 歩きポーズ（SPEC2 C-4）---
+    //   ・プレイヤーの姿() で見ためを入れかえたら __R15 が消えるので、自然に止まる
+    //   ・アニメ(プレイヤー, "…") を入れたら そちらが優先（歩きポーズは止まる）
     const p = this.プレイヤー;
-    if (!p || !p.__いきてる || !p.__うで) return;
+    if (!p || !p.__いきてる || !p.__R15 || p.__アニメ) return;
 
     const はやさ = Math.hypot(数にする(p.__vx, 0), 数にする(p.__vz, 0));
-    // あるいて いるほど おおきく、止まったら すーっと もどす
-    const ねらいふりはば = Math.min(0.85, はやさ * 0.042);
-    this._ふりはば += (ねらいふりはば - this._ふりはば) * Math.min(1, dt * 10);
-    this._あるき位相 += dt * (2.4 + はやさ * 0.42);
-
-    const s = Math.sin(this._あるき位相) * this._ふりはば;
-    p.__うで[0].rotation.x = s;
-    p.__うで[1].rotation.x = -s;
-    p.__あし[0].rotation.x = -s;
-    p.__あし[1].rotation.x = s;
-    // うでは すこし 外に ひらく（ぼうっと 立って いるように 見えないように）
-    p.__うで[0].rotation.z = 0.09;
-    p.__うで[1].rotation.z = -0.09;
+    if (はやさ > 0.5) {
+      // 歩く速さに合わせて、1秒あたりの周回数を変える
+      this._あるき位相 += dt * (0.55 + はやさ * 0.085);
+      this._あるき位相 -= Math.floor(this._あるき位相);
+    } else {
+      // 止まったら、まっすぐ立つ姿（t = 0）へ すーっと戻す
+      let t = this._あるき位相 - Math.floor(this._あるき位相);
+      const さき = (t > 0.5) ? 1 : 0;
+      const すすむ = Math.min(Math.abs(さき - t), dt * 2.2);
+      t += Math.sign(さき - t) * すすむ;
+      this._あるき位相 = t - Math.floor(t);
+    }
+    try {
+      歩きポーズ(p.__R15, this._あるき位相);
+    } catch (e) {
+      // アバター側でこけても ゲームは止めない
+      p.__R15 = null;
+    }
   }
 
   // =========================================================================
@@ -1865,7 +2295,7 @@ export class Game {
       this._おとの準備();
       const 名 = キー名にする(e);
       if (!名) return;
-      if (['みぎ', 'ひだり', 'うえ', 'した', 'スペース'].includes(名)) {
+      if (['右', '左', '上', '下', 'スペース'].includes(名)) {
         if (typeof e.preventDefault === 'function') e.preventDefault();
       }
       if (!this._おされてる.has(名)) this._おしたまち.add(名);
@@ -1878,7 +2308,7 @@ export class Game {
     });
     win.addEventListener('blur', () => {
       this._おされてる.clear();
-      this._クリックちゅう = false;
+      this._ボタン中 = [false, false, false];
     });
 
     // --- マウス ---
@@ -1899,21 +2329,29 @@ export class Game {
       this._みまわしdx += 数にする(e.movementX, 0);
       this._みまわしdy += 数にする(e.movementY, 0);
     });
+    // 左・中・右を きちんと 分ける（SPEC2 E）。e.button は 0=左 1=中 2=右。
     canvas.addEventListener('mousedown', (e) => {
       this._おとの準備();
       const p = this._画面の位置(e.clientX, e.clientY);
       this._マウスX = p.x;
       this._マウスY = p.y;
-      this._クリックちゅう = true;
-      this._クリックまち = true;
-      // 画面を クリックしたら マウスで 見まわせるように する
-      if (this._マウスでみまわす && !this._ポインタロック中) {
+      const b = (e && typeof e.button === 'number') ? e.button : 0;
+      if (b >= 0 && b <= 2) {
+        this._ボタン中[b] = true;
+        this._ボタン待ち[b] = true;
+      }
+      // マウスで 見まわせるようにするのは 左クリックのときだけ
+      if (b === 0 && this._マウスでみまわす && !this._ポインタロック中) {
         try {
           if (typeof canvas.requestPointerLock === 'function') canvas.requestPointerLock();
         } catch (err) { /* できなくても こまらない */ }
       }
     });
-    win.addEventListener('mouseup', () => { this._クリックちゅう = false; });
+    // 離したボタンだけ false にする（左を押しながら右を離しても 左は のこる）
+    win.addEventListener('mouseup', (e) => {
+      const b = (e && typeof e.button === 'number') ? e.button : 0;
+      if (b >= 0 && b <= 2) this._ボタン中[b] = false;
+    });
     canvas.addEventListener('contextmenu', (e) => {
       if (typeof e.preventDefault === 'function') e.preventDefault();
     });
@@ -1921,7 +2359,7 @@ export class Game {
     if (typeof document !== 'undefined' && document.addEventListener) {
       document.addEventListener('pointerlockchange', () => {
         this._ポインタロック中 = (document.pointerLockElement === canvas);
-        if (!this._ポインタロック中) this._クリックちゅう = false;
+        if (!this._ポインタロック中) this._ボタン中 = [false, false, false];
       });
     }
 
@@ -1945,8 +2383,9 @@ export class Game {
             this._みまわしタッチ = { id: t.identifier, x: p.x, y: p.y };
             this._マウスX = p.x;
             this._マウスY = p.y;
-            this._クリックちゅう = true;
-            this._クリックまち = true;
+            // 指は 左クリック あつかい（SPEC2 E）
+            this._ボタン中[0] = true;
+            this._ボタン待ち[0] = true;
           }
         } else if (しゅるい === 'move') {
           if (t.identifier === this._スティック.id) {
@@ -1971,7 +2410,7 @@ export class Game {
           }
           if (t.identifier === this._みまわしタッチ.id) {
             this._みまわしタッチ = { id: null, x: 0, y: 0 };
-            this._クリックちゅう = false;
+            this._ボタン中[0] = false;
           }
         }
       }
@@ -2082,60 +2521,199 @@ export class Game {
   }
 
   // =========================================================================
-  // 17. 組み込みことば（SPEC 5章 と 7章）
+  // 16b. ワールドを作る（SPEC2 B-2 / B-3 / B-5）
+  //
+  //   さくひんの `objects` を 3D に置きます。reset() のすぐあとに呼ばれます。
+  //
+  //     const 表 = game.buildWorld(objects);   // → { 名前: もの, … }
+  //
+  //   ● 渡された配列は 1文字も書きかえません（読むだけ）。
+  //     遊んだ結果が保存に戻ると、作ったものが壊れるからです（SPEC2 B-7）。
+  //   ● おかしなデータ（項目が足りない・知らない形・名前が同じ）でも落ちません。
+  //   ● 「見える」が OFF でも 当たり判定は残ります（見えない壁。SPEC2 B-5）。
   // =========================================================================
 
   /**
-   * lang.js に わたす { 日本語名: 関数 } を かえす。
-   * 関数で ない もの（プレイヤー・ちめん）も 入れてよい。
-   * それらは lang.js で「さいしょから ある へんすう」に なる。
+   * @param {Array} objects さくひんの objects（SPEC2 B-2 の形）
+   * @returns {object} { 名前: もの, … }。コードから名前でそのまま使えます
+   */
+  buildWorld(objects) {
+    const 表 = {};
+    if (!Array.isArray(objects)) return 表;
+
+    let 名なし = 0;
+    for (let i = 0; i < objects.length; i++) {
+      const d = objects[i];
+      if (!d || typeof d !== 'object') continue;
+
+      let o = null;
+      try {
+        o = this._世界のものを1つ作る(d);
+      } catch (e) {
+        // ここで 落とさない。1つ おかしくても 残りは 置く
+        o = null;
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[ことだま buildWorld]', e);
+        }
+      }
+      if (!o) continue;
+
+      // --- id で 引けるようにする（edit.js が つかう。SPEC2 D-3）---
+      let id = (typeof d.id === 'string' && d.id !== '') ? d.id : null;
+      if (id === null) id = 'o' + (++名なし) + '-' + o.__id;
+      if (this.世界のもの.has(id)) id = id + '#' + o.__id;   // id が かぶっても 消えない
+      o.__世界id = id;
+      this.世界のもの.set(id, o);
+
+      // --- 名前で 引けるようにする（変数になる。SPEC2 B-3）---
+      const 名前 = (typeof d.名前 === 'string') ? d.名前.trim() : '';
+      o.__名前 = 名前 || null;
+      if (!名前) continue;
+      if (!使える名前か(名前)) {
+        this._ログ('⚠ 「' + 名前 + '」は名前に使えないので、コードからは名前で呼べません。');
+        continue;
+      }
+      if (Object.prototype.hasOwnProperty.call(表, 名前)) {
+        this._ログ('⚠ 「' + 名前 + '」という名前が2つ以上あります。上にあるほうを使います。');
+        continue;
+      }
+      表[名前] = o;
+      this.世界の名前.set(名前, o);
+    }
+    return 表;
+  }
+
+  /** objects の1つを 3D の「もの」にする（データは 読むだけ） */
+  _世界のものを1つ作る(d) {
+    const かたち = (typeof d.形 === 'string') ? d.形.trim() : '箱';
+    const x = 数にする(d.x, 0);
+    const y = 数にする(d.y, 0);
+    const z = 数にする(d.z, 0);
+    let 横 = Math.abs(数にする(d.横, 4));
+    let 高さ = Math.abs(数にする(d.高さ, 4));
+    let 奥行き = Math.abs(数にする(d.奥行き, 4));
+    if (!(横 > 0)) 横 = 0.01;
+    if (!(高さ > 0)) 高さ = 0.01;
+    if (!(奥行き > 0)) 奥行き = 0.01;
+    const 色 = いろ安全(d.色, '#9aa5b1');
+    const 向き = 数にする(d.向き, 0);
+    const 傾き = 数にする(d.傾き, 0);
+    // 「見える」は 書いてなければ 見える。「壁」は 書いてなければ 通れない
+    const 見える = (d.見える === undefined) ? true : しんぎ(d.見える);
+    const 壁 = (d.壁 === undefined) ? true : しんぎ(d.壁);
+    const 重力 = しんぎ(d.重力) && d.重力 !== undefined;
+    const コード = (typeof d.コード === 'string') ? d.コード : '';
+
+    const きほん = {
+      x, y, z, いろ: 色, むき: 向き, かたむき: 傾き, みえる: 見える,
+      __かべ: 壁,
+      __じゅうりょく: 重力,
+      // コードが入っているものだけ「触れたとき」をしらべる（SPEC2 B-4・速さのため）
+      __触れる: コード.trim() !== '',
+    };
+
+    if (かたち === '玉') {
+      // 玉は 横 を 直径として つかう
+      const r = 横 / 2;
+      return this._かたちをつくる('たま', this._geoたま,
+        Object.assign({ よこ: r * 2, たかさ: r * 2, おくゆき: r * 2 }, きほん));
+    }
+    if (かたち === '筒') {
+      // 筒は 横 が 直径、高さ が 高さ
+      return this._かたちをつくる('つつ', this._geoつつ,
+        Object.assign({ よこ: 横, たかさ: 高さ, おくゆき: 横 }, きほん));
+    }
+    if (かたち === 'モデル') {
+      const なまえ = (typeof d.モデル === 'string') ? d.モデル : '';
+      let m = null;
+      try {
+        if (なまえ) m = this._モデルをよむ(なまえ);
+      } catch (e) {
+        m = null;
+        this._ログ('⚠ ' + (e && e.message ? e.message : 'モデルが読めませんでした。'));
+      }
+      if (!m) {
+        // モデルが 見つからないときは 箱にして 置く（何も出ないより ましなので）
+        return this._かたちをつくる('はこ', this._geoはこ,
+          Object.assign({ よこ: 横, たかさ: 高さ, おくゆき: 奥行き }, きほん));
+      }
+      if (this.scene) this.scene.add(m.group);
+      return this._ものをつくる(Object.assign({
+        よこ: 横, たかさ: 高さ, おくゆき: 奥行き,
+        __かたち: 'モデル',
+        __mesh: m.group,
+        __きじゅん: { x: m.よこ, y: m.たかさ, z: m.おくゆき },
+        __モデルめい: なまえ,
+        __モデルぶひん: m.ぶひん,
+        __もとしせい: m.もとしせい,
+      }, きほん));
+    }
+    // 「箱」と、知らない形は 箱にする
+    return this._かたちをつくる('はこ', this._geoはこ,
+      Object.assign({ よこ: 横, たかさ: 高さ, おくゆき: 奥行き }, きほん));
+  }
+
+  // =========================================================================
+  // 17. 組み込みことば（SPEC 5章 と 7章、SPEC2 A-4）
+  // =========================================================================
+
+  /**
+   * lang.js に渡す { 日本語名: 関数 } を返す。
+   *
+   * ● 漢字が正式・ひらがなも今までどおり動く（SPEC2 A-4）。
+   *   同じ関数を2つのキーに入れているだけです。ひらがなは絶対に消しません。
+   * ● 名前がぶつかる1つだけ、SPEC2 のとおりに直しました:
+   *     地面を作る関数 … `地面を作る` / `じめんをつくる`（`じめん` も今までどおり動く）
+   *     最初からある床 … `地面` / `ちめん`
+   * ● 関数でないもの（プレイヤー・地面）も入れてよい。
+   *   それらは lang.js で「最初からある変数」になります。
    */
   builtins() {
     const G = this;
 
     // ==================== つくる ====================
 
-    /** はこ(x, y, z, よこ, たかさ, おくゆき) */
+    /** 箱(x, y, z, 横, 高さ, 奥行き) */
     const はこ = (x, y, z, よこ, たかさ, おくゆき) => {
       return G._かたちをつくる('はこ', G._geoはこ, {
-        x: すうチェック('はこ', 1, x),
-        y: すうチェック('はこ', 2, y),
-        z: すうチェック('はこ', 3, z),
-        よこ: Math.abs(すうチェック('はこ', 4, よこ)),
-        たかさ: Math.abs(すうチェック('はこ', 5, たかさ)),
-        おくゆき: Math.abs(すうチェック('はこ', 6, おくゆき)),
+        x: すうチェック('箱', 1, x),
+        y: すうチェック('箱', 2, y),
+        z: すうチェック('箱', 3, z),
+        よこ: Math.abs(すうチェック('箱', 4, よこ)),
+        たかさ: Math.abs(すうチェック('箱', 5, たかさ)),
+        おくゆき: Math.abs(すうチェック('箱', 6, おくゆき)),
       });
     };
 
-    /** たま(x, y, z, はんけい) */
+    /** 玉(x, y, z, 半径) */
     const たま = (x, y, z, はんけい) => {
-      const r = Math.abs(すうチェック('たま', 4, はんけい));
+      const r = Math.abs(すうチェック('玉', 4, はんけい));
       return G._かたちをつくる('たま', G._geoたま, {
-        x: すうチェック('たま', 1, x),
-        y: すうチェック('たま', 2, y),
-        z: すうチェック('たま', 3, z),
+        x: すうチェック('玉', 1, x),
+        y: すうチェック('玉', 2, y),
+        z: すうチェック('玉', 3, z),
         よこ: r * 2, たかさ: r * 2, おくゆき: r * 2,
       });
     };
 
-    /** つつ(x, y, z, はんけい, たかさ) */
+    /** 筒(x, y, z, 半径, 高さ) */
     const つつ = (x, y, z, はんけい, たかさ) => {
-      const r = Math.abs(すうチェック('つつ', 4, はんけい));
-      const h = Math.abs(すうチェック('つつ', 5, たかさ));
+      const r = Math.abs(すうチェック('筒', 4, はんけい));
+      const h = Math.abs(すうチェック('筒', 5, たかさ));
       return G._かたちをつくる('つつ', G._geoつつ, {
-        x: すうチェック('つつ', 1, x),
-        y: すうチェック('つつ', 2, y),
-        z: すうチェック('つつ', 3, z),
+        x: すうチェック('筒', 1, x),
+        y: すうチェック('筒', 2, y),
+        z: すうチェック('筒', 3, z),
         よこ: r * 2, たかさ: h, おくゆき: r * 2,
       });
     };
 
-    /** かんばん(x, y, z, もじ) いつも カメラを むく 文字の 板 */
+    /** 看板(x, y, z, 文字) いつもカメラを向く文字の板 */
     const かんばん = (x, y, z, もじ) => {
-      const xx = すうチェック('かんばん', 1, x);
-      const yy = すうチェック('かんばん', 2, y);
-      const zz = すうチェック('かんばん', 3, z);
-      const t = もじチェック('かんばん', 4, もじ);
+      const xx = すうチェック('看板', 1, x);
+      const yy = すうチェック('看板', 2, y);
+      const zz = すうチェック('看板', 3, z);
+      const t = もじチェック('看板', 4, もじ);
       const k = G._かんばんをつくる(t);
       if (G.scene) G.scene.add(k.sprite);
       return G._ものをつくる({
@@ -2149,12 +2727,12 @@ export class Game {
       });
     };
 
-    /** じぶんのモデル(x, y, z, なまえ) モデリング部屋で つくった もの */
+    /** 自分のモデル(x, y, z, 名前) モデリング部屋で作ったもの */
     const じぶんのモデル = (x, y, z, なまえ) => {
-      const xx = すうチェック('じぶんのモデル', 1, x);
-      const yy = すうチェック('じぶんのモデル', 2, y);
-      const zz = すうチェック('じぶんのモデル', 3, z);
-      const n = もじチェック('じぶんのモデル', 4, なまえ);
+      const xx = すうチェック('自分のモデル', 1, x);
+      const yy = すうチェック('自分のモデル', 2, y);
+      const zz = すうチェック('自分のモデル', 3, z);
+      const n = もじチェック('自分のモデル', 4, なまえ);
       const m = G._モデルをよむ(n);
       if (G.scene) G.scene.add(m.group);
       return G._ものをつくる({
@@ -2170,9 +2748,9 @@ export class Game {
       });
     };
 
-    /** けす(もの) */
+    /** 消す(もの) */
     const けす = (もの) => {
-      const o = ものチェック('けす', もの);
+      const o = ものチェック('消す', もの, 1);
       o.__いきてる = false;
       o.みえる = false;
       if (o.__mesh) {
@@ -2185,8 +2763,8 @@ export class Game {
     };
 
     /**
-     * ぜんぶけす() ユーザーが つくった ものを ぜんぶ けす。
-     * プレイヤー と ちめん は のこす（けしたい ときは プレイヤーをけす()）。
+     * 全部消す() 使う人が作ったものを全部消す。
+     * プレイヤーと地面は残します（消したいときは プレイヤーを消す()）。
      */
     const ぜんぶけす = () => {
       const のこす = [];
@@ -2205,32 +2783,32 @@ export class Game {
 
     // ==================== うごかす ====================
 
-    /** うごかす(もの, x, y, z) いまの ばしょから ずらす */
+    /** 動かす(もの, x, y, z) 今の場所からずらす */
     const うごかす = (もの, x, y, z) => {
-      const o = ものチェック('うごかす', もの);
-      o.x = 数にする(o.x, 0) + すうチェック('うごかす', 2, x);
-      o.y = 数にする(o.y, 0) + すうチェック('うごかす', 3, y);
-      o.z = 数にする(o.z, 0) + すうチェック('うごかす', 4, z);
+      const o = ものチェック('動かす', もの, 1);
+      o.x = 数にする(o.x, 0) + すうチェック('動かす', 2, x);
+      o.y = 数にする(o.y, 0) + すうチェック('動かす', 3, y);
+      o.z = 数にする(o.z, 0) + すうチェック('動かす', 4, z);
       return null;
     };
 
-    /** おく(もの, x, y, z) その ばしょに する */
+    /** 置く(もの, x, y, z) その場所にする */
     const おく = (もの, x, y, z) => {
-      const o = ものチェック('おく', もの);
-      o.x = すうチェック('おく', 2, x);
-      o.y = すうチェック('おく', 3, y);
-      o.z = すうチェック('おく', 4, z);
+      const o = ものチェック('置く', もの, 1);
+      o.x = すうチェック('置く', 2, x);
+      o.y = すうチェック('置く', 3, y);
+      o.z = すうチェック('置く', 4, z);
       return null;
     };
 
     /**
-     * むいている ほうへ うごかす どうぐ。
-     * むき = 0 の とき まえ は -z（SPEC 2章）。
-     *   まえ  = (-sin, 0, -cos)
-     *   みぎ  = ( cos, 0, -sin)
+     * 向いているほうへ動かす道具。
+     * 向き = 0 のとき前は -z（SPEC 2章）。
+     *   前  = (-sin, 0, -cos)
+     *   右  = ( cos, 0, -sin)
      */
     const むきへうごかす = (ことば, もの, n, まえ倍, みぎ倍) => {
-      const o = ものチェック(ことば, もの);
+      const o = ものチェック(ことば, もの, 1);
       const d = すうチェック(ことば, 2, n);
       const r = ど2ラジ(数にする(o.むき, 0));
       const s = Math.sin(r), c = Math.cos(r);
@@ -2239,47 +2817,47 @@ export class Game {
       return null;
     };
 
-    const まえへ = (もの, n) => むきへうごかす('まえへ', もの, n, 1, 0);
-    const うしろへ = (もの, n) => むきへうごかす('うしろへ', もの, n, -1, 0);
-    const みぎへ = (もの, n) => むきへうごかす('みぎへ', もの, n, 0, 1);
-    const ひだりへ = (もの, n) => むきへうごかす('ひだりへ', もの, n, 0, -1);
+    const まえへ = (もの, n) => むきへうごかす('前へ', もの, n, 1, 0);
+    const うしろへ = (もの, n) => むきへうごかす('後ろへ', もの, n, -1, 0);
+    const みぎへ = (もの, n) => むきへうごかす('右へ', もの, n, 0, 1);
+    const ひだりへ = (もの, n) => むきへうごかす('左へ', もの, n, 0, -1);
 
     const うえへ = (もの, n) => {
-      const o = ものチェック('うえへ', もの);
-      o.y = 数にする(o.y, 0) + すうチェック('うえへ', 2, n);
+      const o = ものチェック('上へ', もの, 1);
+      o.y = 数にする(o.y, 0) + すうチェック('上へ', 2, n);
       return null;
     };
     const したへ = (もの, n) => {
-      const o = ものチェック('したへ', もの);
-      o.y = 数にする(o.y, 0) - すうチェック('したへ', 2, n);
+      const o = ものチェック('下へ', もの, 1);
+      o.y = 数にする(o.y, 0) - すうチェック('下へ', 2, n);
       return null;
     };
 
-    /** まわす(もの, ど) いまの むきから ど だけ 左右に まわす */
+    /** 回す(もの, 度) 今の向きから 度 だけ左右に回す */
     const まわす = (もの, ど) => {
-      const o = ものチェック('まわす', もの);
-      o.むき = 数にする(o.むき, 0) + すうチェック('まわす', 2, ど);
+      const o = ものチェック('回す', もの, 1);
+      o.むき = 数にする(o.むき, 0) + すうチェック('回す', 2, ど);
       return null;
     };
 
-    /** かたむける(もの, ど) いまの かたむきから ど だけ 前後に たおす */
+    /** 傾ける(もの, 度) 今の傾きから 度 だけ前後に倒す */
     const かたむける = (もの, ど) => {
-      const o = ものチェック('かたむける', もの);
-      o.かたむき = 数にする(o.かたむき, 0) + すうチェック('かたむける', 2, ど);
+      const o = ものチェック('傾ける', もの, 1);
+      o.かたむき = 数にする(o.かたむき, 0) + すうチェック('傾ける', 2, ど);
       return null;
     };
 
-    /** むける(もの, ど) むきを その 角度に する */
+    /** 向ける(もの, 度) 向きをその角度にする */
     const むける = (もの, ど) => {
-      const o = ものチェック('むける', もの);
-      o.むき = すうチェック('むける', 2, ど);
+      const o = ものチェック('向ける', もの, 1);
+      o.むき = すうチェック('向ける', 2, ど);
       return null;
     };
 
-    /** むかせる(もの, あいて) あいての ほうを むかせる */
+    /** 向かせる(もの, 相手) 相手のほうを向かせる */
     const むかせる = (もの, あいて) => {
-      const o = ものチェック('むかせる', もの);
-      const a = ものチェック('むかせる', あいて);
+      const o = ものチェック('向かせる', もの, 1);
+      const a = ものチェック('向かせる', あいて, 2);
       const dx = 数にする(a.x, 0) - 数にする(o.x, 0);
       const dz = 数にする(a.z, 0) - 数にする(o.z, 0);
       if (dx === 0 && dz === 0) return null;
@@ -2289,18 +2867,18 @@ export class Game {
 
     // ==================== みため ====================
 
-    /** いろ(もの, いろ) */
+    /** 色(もの, "赤") */
     const いろ = (もの, いろな) => {
-      const o = ものチェック('いろ', もの);
-      o.いろ = いろに直す('いろ', いろな);
+      const o = ものチェック('色', もの, 1);
+      o.いろ = いろに直す('色', いろな);
       return null;
     };
 
-    /** おおきさ(もの, ばい) さいしょの 大きさの 何ばいに するか */
+    /** 大きさ(もの, 倍) 最初の大きさの何倍にするか */
     const おおきさ = (もの, ばい) => {
-      const o = ものチェック('おおきさ', もの);
-      const b = すうチェック('おおきさ', 2, ばい);
-      if (b < 0) throw エラー('おおきさ の ばい には 0いじょうの すうじを わたしてね');
+      const o = ものチェック('大きさ', もの, 1);
+      const b = すうチェック('大きさ', 2, ばい);
+      if (b < 0) throw エラー('「大きさ」の倍には 0以上の数を渡してください。' + 使い方('大きさ'));
       o.よこ = 数にする(o.__もとよこ, 1) * b;
       o.たかさ = 数にする(o.__もとたかさ, 1) * b;
       o.おくゆき = 数にする(o.__もとおくゆき, 1) * b;
@@ -2308,32 +2886,32 @@ export class Game {
     };
 
     const かくす = (もの) => {
-      ものチェック('かくす', もの).みえる = false;
+      ものチェック('隠す', もの, 1).みえる = false;
       return null;
     };
     const みせる = (もの) => {
-      ものチェック('みせる', もの).みえる = true;
+      ものチェック('見せる', もの, 1).みえる = true;
       return null;
     };
 
-    /** もよう(もの, なまえ) おえかき部屋の 絵を はる */
+    /** 模様(もの, 名前) おえかき部屋の絵を貼る */
     const もよう = (もの, なまえ) => {
-      const o = ものチェック('もよう', もの);
-      const n = もじチェック('もよう', 2, なまえ);
-      G._もようをよむ(n);          // ない なまえなら ここで 日本語エラー
+      const o = ものチェック('模様', もの, 1);
+      const n = もじチェック('模様', 2, なまえ);
+      G._もようをよむ(n);          // ない名前ならここで日本語のエラー
       o.__もよう = n;
-      o.__いろ適用 = null;          // つぎの えがきで つけなおす
+      o.__いろ適用 = null;          // 次の描きでつけ直す
       return null;
     };
 
-    /** そらのいろ(いろ) */
+    /** 空の色("水色") */
     const そらのいろ = (いろな) => {
-      const c = いろに直す('そらのいろ', いろな);
+      const c = いろに直す('空の色', いろな);
       G._そらのいろ = c;
       if (G.scene) {
         if (G.scene.background && G.scene.background.set) G.scene.background.set(c);
         else G.scene.background = new THREE.Color(c);
-        // きりを じぶんで きめて いなければ、そらと おなじ いろに する
+        // 霧を自分で決めていなければ、空と同じ色にする
         if (G._きりは自動 && G.scene.fog) {
           G._きりのいろ = c;
           G.scene.fog.color.set(c);
@@ -2343,13 +2921,13 @@ export class Game {
     };
 
     /**
-     * じめん(いろ, ひろさ) 地面を つくって かえす。
-     * さいしょから ある「ちめん」の いろと ひろさを かえて、それを かえす
-     * （2まい かさなって チラチラしないように）。
+     * 地面を作る(色, 広さ) 地面を作って返す。
+     * 最初からある「地面」の色と広さを変えて、それを返します
+     * （2枚重なってチラチラしないように）。
      */
-    const じめん = (いろな, ひろさ) => {
-      const c = いろに直す('じめん', いろな);
-      let w = (ひろさ === undefined) ? 200 : Math.abs(すうチェック('じめん', 2, ひろさ));
+    const じめんをつくる = (いろな, ひろさ) => {
+      const c = いろに直す('地面を作る', いろな);
+      let w = (ひろさ === undefined) ? 200 : Math.abs(すうチェック('地面を作る', 2, ひろさ));
       if (w < 1) w = 1;
       let g = G.ちめん;
       if (!g || !g.__いきてる) {
@@ -2361,17 +2939,17 @@ export class Game {
       g.おくゆき = w;
       g.__もとよこ = w;
       g.__もとおくゆき = w;
-      // ますめの もようも ひろさに あわせる
+      // ますめの模様も広さに合わせる
       if (g.__ざいりょう && g.__ざいりょう.map) {
         g.__ざいりょう.map.repeat.set(Math.max(1, w / 4), Math.max(1, w / 4));
       }
       return g;
     };
 
-    /** きり(いろ, こさ) こさは 0〜1 くらい */
+    /** 霧(色, 濃さ) 濃さは 0〜1 くらい */
     const きり = (いろな, こさ) => {
-      const c = いろに直す('きり', いろな);
-      let k = (こさ === undefined) ? 0.4 : すうチェック('きり', 2, こさ);
+      const c = いろに直す('霧', いろな);
+      let k = (こさ === undefined) ? 0.4 : すうチェック('霧', 2, こさ);
       if (k < 0) k = 0;
       if (k > 4) k = 4;
       G._きりのいろ = c;
@@ -2385,32 +2963,32 @@ export class Game {
 
     // ==================== うごき（物理）====================
 
-    /** じゅうりょく(もの, はい) おちるように する */
+    /** 重力(もの, はい) 落ちるようにする */
     const じゅうりょく = (もの, はい) => {
-      const o = ものチェック('じゅうりょく', もの);
+      const o = ものチェック('重力', もの, 1);
       o.__じゅうりょく = しんぎ(はい);
       if (!o.__じゅうりょく) o.__vy = 0;
       return null;
     };
 
-    /** かべにする(もの) 通りぬけ できなくする */
+    /** 壁にする(もの) 通り抜けできなくする */
     const かべにする = (もの) => {
-      ものチェック('かべにする', もの).__かべ = true;
+      ものチェック('壁にする', もの, 1).__かべ = true;
       return null;
     };
 
-    /** はやさ(もの, x, y, z) はやさを 直接 いれる */
+    /** 速さ(もの, x, y, z) 速さを直接入れる */
     const はやさ = (もの, x, y, z) => {
-      const o = ものチェック('はやさ', もの);
-      o.__vx = すうチェック('はやさ', 2, x);
-      o.__vy = すうチェック('はやさ', 3, y);
-      o.__vz = すうチェック('はやさ', 4, z);
+      const o = ものチェック('速さ', もの, 1);
+      o.__vx = すうチェック('速さ', 2, x);
+      o.__vy = すうチェック('速さ', 3, y);
+      o.__vz = すうチェック('速さ', 4, z);
       return null;
     };
 
-    /** ジャンプ(もの, つよさ) ゆかに いるときだけ きく */
+    /** ジャンプ(もの, 強さ) 床にいるときだけ効く */
     const ジャンプ = (もの, つよさ) => {
-      const o = ものチェック('ジャンプ', もの);
+      const o = ものチェック('ジャンプ', もの, 1);
       const t = (つよさ === undefined) ? G._ジャンプのつよさ : すうチェック('ジャンプ', 2, つよさ);
       if (!o.__ゆかにいる) return false;
       o.__vy = t;
@@ -2418,27 +2996,27 @@ export class Game {
       return true;
     };
 
-    /** ゆかにいる(もの) */
+    /** 床にいる(もの) */
     const ゆかにいる = (もの) => {
-      return ものチェック('ゆかにいる', もの).__ゆかにいる === true;
+      return ものチェック('床にいる', もの, 1).__ゆかにいる === true;
     };
 
     // ==================== カメラ ====================
 
     const カメラをおく = (x, y, z) => {
-      const xx = すうチェック('カメラをおく', 1, x);
-      const yy = すうチェック('カメラをおく', 2, y);
-      const zz = すうチェック('カメラをおく', 3, z);
-      G._カメラモード = 'てうち';       // 自動の カメラは やめる
+      const xx = すうチェック('カメラを置く', 1, x);
+      const yy = すうチェック('カメラを置く', 2, y);
+      const zz = すうチェック('カメラを置く', 3, z);
+      G._カメラモード = 'てうち';       // 自動のカメラはやめる
       G._カメラのあいて = null;
       if (G.camera) G.camera.position.set(xx, yy, zz);
       return null;
     };
 
     const カメラをむける = (x, y, z) => {
-      const xx = すうチェック('カメラをむける', 1, x);
-      const yy = すうチェック('カメラをむける', 2, y);
-      const zz = すうチェック('カメラをむける', 3, z);
+      const xx = すうチェック('カメラを向ける', 1, x);
+      const yy = すうチェック('カメラを向ける', 2, y);
+      const zz = すうチェック('カメラを向ける', 3, z);
       G._カメラモード = 'てうち';
       G._カメラのあいて = null;
       G._カメラ注視もの = null;
@@ -2448,7 +3026,7 @@ export class Game {
     };
 
     const カメラをむかせる = (もの) => {
-      const o = ものチェック('カメラをむかせる', もの);
+      const o = ものチェック('カメラを向かせる', もの, 1);
       G._カメラモード = 'てうち';
       G._カメラのあいて = null;
       G._カメラ注視 = null;
@@ -2456,21 +3034,21 @@ export class Game {
       return null;
     };
 
-    /** カメラをつける(もの, うしろ, たかさ) 三人称で おいかける */
+    /** カメラを付ける(もの, 後ろ, 高さ) 三人称で追いかける */
     const カメラをつける = (もの, うしろ, たかさ) => {
-      const o = ものチェック('カメラをつける', もの);
+      const o = ものチェック('カメラを付ける', もの, 1);
       G._カメラモード = 'ついせき';
       G._カメラのあいて = o;
-      G._カメラうしろ = (うしろ === undefined) ? 12 : すうチェック('カメラをつける', 2, うしろ);
-      G._カメラたかさ = (たかさ === undefined) ? 6 : すうチェック('カメラをつける', 3, たかさ);
+      G._カメラうしろ = (うしろ === undefined) ? 12 : すうチェック('カメラを付ける', 2, うしろ);
+      G._カメラたかさ = (たかさ === undefined) ? 6 : すうチェック('カメラを付ける', 3, たかさ);
       G._カメラ注視 = null;
       G._カメラ注視もの = null;
       return null;
     };
 
-    /** カメラのなかに(もの) 一人称。その ものは 見えなくなる */
+    /** カメラの中に(もの) 一人称。そのものは見えなくなる */
     const カメラのなかに = (もの) => {
-      const o = ものチェック('カメラのなかに', もの);
+      const o = ものチェック('カメラの中に', もの, 1);
       G._カメラモード = 'いちにんしょう';
       G._カメラのあいて = o;
       G._カメラ注視 = null;
@@ -2478,7 +3056,7 @@ export class Game {
       return null;
     };
 
-    /** マウスでみまわす(はい) 画面を クリックすると マウスで 視点が まわる */
+    /** マウスで見回す(はい) 画面をクリックするとマウスで視点が回る */
     const マウスでみまわす = (はい) => {
       G._マウスでみまわす = しんぎ(はい);
       if (!G._マウスでみまわす && typeof document !== 'undefined' &&
@@ -2488,57 +3066,67 @@ export class Game {
       return null;
     };
 
-    /** カメラのむき() いま むいている 左右の 角度（度） */
+    /** カメラの向き() 今向いている左右の角度（度） */
     const カメラのむき = () => {
       return ((G._カメラむき % 360) + 360) % 360;
     };
 
     // ==================== しらべる ====================
 
-    const おされてる = (キー) => G._おされてる.has(キー名を直す('おされてる', キー));
-    const おした = (キー) => G._おした.has(キー名を直す('おした', キー));
+    const おされてる = (キー) => G._おされてる.has(キー名を直す('押されてる', キー));
+    const おした = (キー) => G._おした.has(キー名を直す('押した', キー));
 
-    /** ぶつかってる(A, B) 3D の 箱どうしの かさなり */
+    /** ぶつかってる(A, B) 3D の箱どうしの重なり */
     const ぶつかってる = (A, B) => {
-      const a = ものチェック('ぶつかってる', A);
-      const b = ものチェック('ぶつかってる', B);
+      const a = ものチェック('ぶつかってる', A, 1);
+      const b = ものチェック('ぶつかってる', B, 2);
       if (!a.__いきてる || !b.__いきてる) return false;
       return かさなる(はこにする(a), はこにする(b));
     };
 
-    /** きょり(A, B) まんなか どうしの きょり（3D） */
+    /** 距離(A, B) まんなかどうしの距離（3D） */
     const きょり = (A, B) => {
-      const a = ものチェック('きょり', A);
-      const b = ものチェック('きょり', B);
+      const a = ものチェック('距離', A, 1);
+      const b = ものチェック('距離', B, 2);
       const dx = 数にする(a.x, 0) - 数にする(b.x, 0);
       const dy = 数にする(a.y, 0) - 数にする(b.y, 0);
       const dz = 数にする(a.z, 0) - 数にする(b.z, 0);
       return Math.sqrt(dx * dx + dy * dy + dz * dz);
     };
 
+    const がめんのよこ = () => 画面よこ;
+    const がめんのたて = () => 画面たて;
+
     const マウスX = () => G._マウスX;
     const マウスY = () => G._マウスY;
-    const クリックした = () => G._クリックした;
-    const クリックちゅう = () => G._クリックちゅう;
+
+    // マウスのボタンは 左・中・右 を きちんと分ける（SPEC2 E）。
+    // 「クリックした」「クリック中」は 今までの名前のまま、左だけを見ます。
+    const クリックした = () => G._ボタン押した[0] === true;
+    const みぎクリックした = () => G._ボタン押した[2] === true;
+    const なかクリックした = () => G._ボタン押した[1] === true;
+    const クリックちゅう = () => G._ボタン中[0] === true;
+    const みぎクリックちゅう = () => G._ボタン中[2] === true;
+    const なかクリックちゅう = () => G._ボタン中[1] === true;
 
     // ==================== すうじ ====================
 
     const らんすう = (a, b) => {
-      let lo = Math.ceil(すうチェック('らんすう', 1, a));
-      let hi = Math.floor(すうチェック('らんすう', 2, b));
+      let lo = Math.ceil(すうチェック('乱数', 1, a));
+      let hi = Math.floor(すうチェック('乱数', 2, b));
       if (lo > hi) { const t = lo; lo = hi; hi = t; }
       return lo + Math.floor(Math.random() * (hi - lo + 1));
     };
-    const せいすう = (x) => Math.floor(すうチェック('せいすう', 1, x));
-    const ぜったいち = (x) => Math.abs(すうチェック('ぜったいち', 1, x));
+    const せいすう = (x) => Math.floor(すうチェック('整数', 1, x));
+    const ぜったいち = (x) => Math.abs(すうチェック('絶対値', 1, x));
     const さいだい = (a, b) =>
-      Math.max(すうチェック('さいだい', 1, a), すうチェック('さいだい', 2, b));
+      Math.max(すうチェック('最大', 1, a), すうチェック('最大', 2, b));
     const さいしょう = (a, b) =>
-      Math.min(すうチェック('さいしょう', 1, a), すうチェック('さいしょう', 2, b));
+      Math.min(すうチェック('最小', 1, a), すうチェック('最小', 2, b));
     const へいほうこん = (x) => {
-      const n = すうチェック('へいほうこん', 1, x);
+      const n = すうチェック('平方根', 1, x);
       if (n < 0) {
-        throw エラー('へいほうこん には 0いじょうの すうじを わたしてね（' + n + ' は マイナスです）');
+        throw エラー('「平方根」には 0以上の数を渡してください（' + n + ' はマイナスです）。');
       }
       return Math.sqrt(n);
     };
@@ -2546,13 +3134,13 @@ export class Game {
     const コサイン = (ど) => Math.cos(ど2ラジ(すうチェック('コサイン', 1, ど)));
 
     /**
-     * かくど(よこ, おくゆき) → 度。
-     * `むける(もの, かくど(dx, dz))` と 書くと その ほうを むく。
-     * （むき = 0 の とき まえ は -z なので atan2(-dx, -dz)）
+     * 角度(横, 奥行き) → 度。
+     * `向ける(もの, 角度(dx, dz))` と書くと そのほうを向きます。
+     * （向き = 0 のとき前は -z なので atan2(-dx, -dz)）
      */
     const かくど = (よこ, おくゆき) => {
-      const dx = すうチェック('かくど', 1, よこ);
-      const dz = すうチェック('かくど', 2, おくゆき);
+      const dx = すうチェック('角度', 1, よこ);
+      const dz = すうチェック('角度', 2, おくゆき);
       let d = (Math.atan2(-dx, -dz) * 180) / Math.PI;
       if (d < 0) d += 360;
       return d;
@@ -2574,15 +3162,16 @@ export class Game {
       if (typeof v === 'string') return Array.from(v).length;
       if (Array.isArray(v)) return v.length;
       if (typeof v === 'number') return String(v).length;
-      throw エラー('ながさ には もじ か リストを わたしてね（いま わたされたのは ' + 見せる(v) + '）');
+      if (v === undefined) throw たりない('長さ', 1);
+      throw エラー('「長さ」には文字かリストを渡してください（渡されたのは ' + 見せる(v) + '）。' + 使い方('長さ'));
     };
     const くわえる = (リスト, もの) => {
-      const a = リストチェック('くわえる', 1, リスト);
+      const a = リストチェック('加える', 1, リスト);
       a.push(もの === undefined ? null : もの);
       return a;
     };
     const とりのぞく = (リスト, もの) => {
-      const a = リストチェック('とりのぞく', 1, リスト);
+      const a = リストチェック('取り除く', 1, リスト);
       const i = a.indexOf(もの === undefined ? null : もの);
       if (i >= 0) a.splice(i, 1);
       return a;
@@ -2596,7 +3185,7 @@ export class Game {
     };
 
     const まつ = (びょう) => {
-      let n = すうチェック('まつ', 1, びょう);
+      let n = すうチェック('待つ', 1, びょう);
       if (n < 0) n = 0;
       if (n > 60) n = 60;
       return { __wait: n };
@@ -2605,18 +3194,25 @@ export class Game {
     const おと = (なまえ) => {
       const 使える = ['ピコ', 'ドン', 'キラン', 'ジャン', 'ボヨン'];
       const s = typeof なまえ === 'string' ? なまえ.trim() : '';
-      if (!使える.includes(s)) {
+      // ひらがなで書かれても通す（SPEC2 F）
+      let きまり = 使える.includes(s) ? s : null;
+      if (!きまり) {
+        const そ = そろえる(s);
+        for (const n of 使える) if (そろえる(n) === そ && そ !== '') きまり = n;
+      }
+      if (!きまり) {
+        if (なまえ === undefined) throw たりない('音', 1);
         throw エラー(
-          'おと には ' + 使える.join(' ') + ' の どれかを わたしてね' +
-            '（いま わたされたのは ' + 見せる(なまえ) + '）'
+          '「音」には ' + 使える.join(' ') + ' のどれかを渡してください' +
+            '（渡されたのは ' + 見せる(なまえ) + '）。' + 使い方('音')
         );
       }
-      G._おとをならす(s);
+      G._おとをならす(きまり);
       return null;
     };
 
     const てんすう = (n) => {
-      G._てんすう = すうチェック('てんすう', 1, n);
+      G._てんすう = すうチェック('点数', 1, n);
       if (G._hud) G._hud.よごれ = true;
       return null;
     };
@@ -2636,7 +3232,7 @@ export class Game {
     const ゲームしゅうりょう = (もじな) => {
       G._メッセージ = (もじな === undefined)
         ? 'おしまい'
-        : もじチェック('ゲームしゅうりょう', 1, もじな);
+        : もじチェック('ゲーム終了', 1, もじな);
       if (G._hud) G._hud.よごれ = true;
       とめる();
       return null;
@@ -2644,9 +3240,39 @@ export class Game {
 
     const じかん = () => G._じかん;
 
+    // ==================== ワールド（SPEC2 B-3）====================
+
+    /**
+     * 探す("名前") ワールドに置いたものを名前で探す。
+     * ふつうは名前をそのまま書けますが（あかい箱 のように）、
+     * 名前を文字で組み立てたいときは これを使います。
+     * ひらがな・カタカナのちがいは こえて探します（SPEC2 F）。
+     */
+    const さがす = (なまえ) => {
+      const n = もじチェック('探す', 1, なまえ);
+      const かぎ = 名前をさがすMap(G.世界の名前, n);
+      if (かぎ !== null) return G.世界の名前.get(かぎ);
+      // 最初からあるものも 探せるようにする
+      const そ = そろえる(n);
+      if (n === 'プレイヤー' || そ === 'ぷれいやー') {
+        if (G.プレイヤー) return G.プレイヤー;
+      }
+      if (n === '地面' || n === 'ちめん' || そ === 'ちめん') {
+        if (G.ちめん) return G.ちめん;
+      }
+      const ある = [];
+      for (const k of G.世界の名前.keys()) ある.push('「' + k + '」');
+      throw エラー(
+        '「' + n + '」というものはワールドにありません。' +
+          (ある.length
+            ? '今あるのは ' + ある.join(' ') + ' です。'
+            : '\n  → ワールド一覧の ＋箱 などで置いてから使ってください')
+      );
+    };
+
     // ==================== SPEC 7章：プレイヤーまわり ====================
 
-    /** そうさをきる() 自動の そうさを やめる（自分で うごかしたい とき） */
+    /** 操作を切る() 自動の操作をやめる（自分で動かしたいとき） */
     const そうさをきる = () => {
       G._そうさする = false;
       const p = G.プレイヤー;
@@ -2654,12 +3280,12 @@ export class Game {
       return null;
     };
 
-    /** プレイヤーをけす() プレイヤーごと けす（見せるだけの ものを 作るとき） */
+    /** プレイヤーを消す() プレイヤーごと消す（見せるだけのものを作るとき） */
     const プレイヤーをけす = () => {
       const p = G.プレイヤー;
       if (p && p.__いきてる) けす(p);
       G._そうさする = false;
-      // 自動の カメラは やめて、さいしょの ばしょに もどす
+      // 自動のカメラはやめて、最初の場所に戻す
       if (G._カメラモード === 'じどう') {
         G._カメラモード = 'てうち';
         if (G.camera) {
@@ -2671,21 +3297,21 @@ export class Game {
       return null;
     };
 
-    /** はやさをかえる(あるく, はしる, ジャンプ) きほんは 14 / 22 / 32 */
+    /** 速さを変える(歩く, 走る, ジャンプ) 既定は 14 / 22 / 32 */
     const はやさをかえる = (あるく, はしる, ジャンプ) => {
       if (あるく !== undefined) {
-        G._あるくはやさ = Math.abs(すうチェック('はやさをかえる', 1, あるく));
+        G._あるくはやさ = Math.abs(すうチェック('速さを変える', 1, あるく));
       }
       if (はしる !== undefined) {
-        G._はしるはやさ = Math.abs(すうチェック('はやさをかえる', 2, はしる));
+        G._はしるはやさ = Math.abs(すうチェック('速さを変える', 2, はしる));
       }
       if (ジャンプ !== undefined) {
-        G._ジャンプのつよさ = Math.abs(すうチェック('はやさをかえる', 3, ジャンプ));
+        G._ジャンプのつよさ = Math.abs(すうチェック('速さを変える', 3, ジャンプ));
       }
       return null;
     };
 
-    /** いちにんしょう(はい) 一人称に きりかえる */
+    /** 一人称(はい) 一人称に切りかえる */
     const いちにんしょう = (はい) => {
       const p = G.プレイヤー;
       if (しんぎ(はい)) {
@@ -2699,81 +3325,80 @@ export class Game {
       return null;
     };
 
-    // ==================== アニメ部屋の アニメ ====================
+    // ==================== アニメ部屋のアニメ ====================
 
     /**
-     * アニメ(もの, なまえ)
-     *   アニメ部屋で つくった うごきを、その ものに させる。
-     *   つかえるのは じぶんのモデル() で つくった もの と、
-     *   プレイヤーのすがた() で すがたを かえた プレイヤー。
-     *   もう べつの アニメが うごいていたら、そちらを やめて さしかえる。
-     *   → なし を かえす
+     * アニメ(もの, 名前)
+     *   アニメ部屋で作った動きを、そのものにさせる。
+     *   使えるのは 自分のモデル() で作ったものと、
+     *   最初からいる R15 のプレイヤー、
+     *   プレイヤーの姿() で姿を変えたプレイヤーです。
+     *   もう別のアニメが動いていたら、そちらをやめて差しかえます。
+     *   → なし を返す
      */
     const アニメ = (もの, なまえ) => {
-      const o = ものチェック('アニメ', もの);
+      const o = ものチェック('アニメ', もの, 1);
       const n = もじチェック('アニメ', 2, なまえ);
-      const データ = G._アニメをよむ(n);     // ない なまえなら ここで 日本語エラー
+      const データ = G._アニメをよむ(n);     // ない名前ならここで日本語のエラー
       if (!o.__モデルぶひん) {
         throw エラー(
-          'アニメ は じぶんのモデル() で つくった ものか、' +
-            'プレイヤーのすがた() で すがたを かえた プレイヤーに つかってね' +
-            '（はこ() や たま() には つかえません）'
+          '「アニメ」は プレイヤーか、自分のモデル() で作ったものに使ってください' +
+            '（箱() や 玉() には使えません）。' + 使い方('アニメ')
         );
       }
-      if (o.__アニメ) G._しせいをもどす(o);  // まえの アニメを やめて もとの かたちに
+      if (o.__アニメ) G._しせいをもどす(o);  // 前のアニメをやめて元のかたちに
       o.__アニメ = { なまえ: n, データ: データ, じかん: 0 };
       return null;
     };
 
     /**
-     * アニメをとめる(もの)
-     *   さいせいを やめて、もとの しせいに もどす。
-     *   うごいて いなくても おこられない。
-     *   → なし を かえす
+     * アニメを止める(もの)
+     *   再生をやめて、元の姿勢に戻す。動いていなくても怒られません。
+     *   → なし を返す
      */
     const アニメをとめる = (もの) => {
-      const o = ものチェック('アニメをとめる', もの);
+      const o = ものチェック('アニメを止める', もの, 1);
       o.__アニメ = null;
       G._しせいをもどす(o);
       return null;
     };
 
     /**
-     * プレイヤーのすがた(なまえ)
-     *   プレイヤーの 見ためだけを、モデリング部屋で つくった モデルに 入れかえる。
-     *   当たり判定・じゅうりょく・カメラ・WASD の そうさは これまで どおり きく。
-     *   ・当たり判定の 箱は、モデル ぜんたいを かこむ 大きさに あわせる
-     *   ・足もとが いままでと おなじ たかさ（地面なら y=0）に くるように おきなおす
-     *   ・もとから ある 腕・脚の ふりは ここで やめる（歩きは アニメ() で つける）
-     *   → すがたを かえた プレイヤー（もの）を かえす
+     * プレイヤーの姿(名前)
+     *   プレイヤーの見ためだけを、モデリング部屋で作ったモデルに入れかえる。
+     *   当たり判定・重力・カメラ・WASD の操作はこれまでどおり効きます。
+     *   ・当たり判定の箱は、モデル全体を囲む大きさに合わせる
+     *   ・足元が今までと同じ高さ（地面なら y=0）に来るように置き直す
+     *   ・最初から入っている R15 の歩きポーズは ここでやめる
+     *     （歩きは アニメ() でつける）
+     *   → 姿を変えたプレイヤー（もの）を返す
      */
     const プレイヤーのすがた = (なまえ) => {
-      const n = もじチェック('プレイヤーのすがた', 1, なまえ);
+      const n = もじチェック('プレイヤーの姿', 1, なまえ);
       const p = G.プレイヤー;
-      if (!p) throw エラー('プレイヤーが いないので すがたを かえられません');
+      if (!p) throw エラー('プレイヤーがいないので姿を変えられません。');
 
-      const m = G._モデルをよむ(n);          // ない なまえなら ここで 日本語エラー
+      const m = G._モデルをよむ(n);          // ない名前ならここで日本語のエラー
 
-      // いまの 足もとの たかさを おぼえておく（足もとを ずらさないため）
+      // 今の足元の高さを覚えておく（足元をずらさないため）
       const あしもと = 数にする(p.y, 0) - Math.abs(数にする(p.たかさ, 5)) / 2;
 
-      // ふるい 見ためを はずして、あたらしい ものを つける
+      // 古い見ためを外して、新しいものをつける
       if (p.__mesh && G.scene) {
         try { G.scene.remove(p.__mesh); } catch (e) { /* 何もしない */ }
       }
-      m.group.visible = p.__いきてる;        // けされた あとなら 出さない
+      m.group.visible = p.__いきてる;        // 消されたあとなら出さない
       if (G.scene) G.scene.add(m.group);
 
       p.__mesh = m.group;
       p.__かたち = 'モデル';
-      p.__うで = null;                       // 腕・脚の ふりを やめる
-      p.__あし = null;
+      p.__R15 = null;                        // R15 の歩きポーズをやめる
       p.__モデルめい = n;
       p.__モデルぶひん = m.ぶひん;
       p.__もとしせい = m.もとしせい;
       p.__アニメ = null;
 
-      // 当たり判定を モデル ぜんたいを かこむ 箱に あわせる
+      // 当たり判定をモデル全体を囲む箱に合わせる
       p.よこ = m.よこ;
       p.たかさ = m.たかさ;
       p.おくゆき = m.おくゆき;
@@ -2782,117 +3407,150 @@ export class Game {
       p.__もとおくゆき = m.おくゆき;
       p.__きじゅん = { x: m.よこ, y: m.たかさ, z: m.おくゆき };
 
-      // いろは モデルの ままに する（あとから いろ() で かえられる）
+      // 色はモデルのままにする（あとから 色() で変えられる）
       p.いろ = m.いろ;
       p.__いろ適用 = m.いろ;
 
-      // 足もとを さっきと おなじ たかさに もどす
-      // （モデルは 足もと y=0 めやすで つくるので、これで 地面に ちゃんと 立つ）
+      // 足元をさっきと同じ高さに戻す
+      // （モデルは足元 y=0 めやすで作るので、これで地面にちゃんと立つ）
       p.y = あしもと + m.たかさ / 2;
 
       return p;
     };
 
-    // ==================== ぜんぶ まとめる ====================
+    // ==================== 全部まとめる ====================
+    //
+    //   [漢字（正式）, ひらがな別名, 関数] のならびで書きます。
+    //   同じ関数を 両方のキーに入れるだけ。ひらがなは絶対に消しません。
+    //   エラーの文には 漢字の名前が出ます。
 
-    const 表 = {
+    const 表 = [
       // つくる
-      'はこ': はこ,
-      'たま': たま,
-      'つつ': つつ,
-      'かんばん': かんばん,
-      'じぶんのモデル': じぶんのモデル,
-      'けす': けす,
-      'ぜんぶけす': ぜんぶけす,
+      ['箱', 'はこ', はこ],
+      ['玉', 'たま', たま],
+      ['筒', 'つつ', つつ],
+      ['看板', 'かんばん', かんばん],
+      ['自分のモデル', 'じぶんのモデル', じぶんのモデル],
+      ['消す', 'けす', けす],
+      ['全部消す', 'ぜんぶけす', ぜんぶけす],
       // うごかす
-      'うごかす': うごかす,
-      'おく': おく,
-      'まえへ': まえへ,
-      'うしろへ': うしろへ,
-      'みぎへ': みぎへ,
-      'ひだりへ': ひだりへ,
-      'うえへ': うえへ,
-      'したへ': したへ,
-      'まわす': まわす,
-      'かたむける': かたむける,
-      'むける': むける,
-      'むかせる': むかせる,
+      ['動かす', 'うごかす', うごかす],
+      ['置く', 'おく', おく],
+      ['前へ', 'まえへ', まえへ],
+      ['後ろへ', 'うしろへ', うしろへ],
+      ['右へ', 'みぎへ', みぎへ],
+      ['左へ', 'ひだりへ', ひだりへ],
+      ['上へ', 'うえへ', うえへ],
+      ['下へ', 'したへ', したへ],
+      ['回す', 'まわす', まわす],
+      ['傾ける', 'かたむける', かたむける],
+      ['向ける', 'むける', むける],
+      ['向かせる', 'むかせる', むかせる],
       // みため
-      'いろ': いろ,
-      'おおきさ': おおきさ,
-      'かくす': かくす,
-      'みせる': みせる,
-      'もよう': もよう,
-      'そらのいろ': そらのいろ,
-      'じめん': じめん,
-      'きり': きり,
+      ['色', 'いろ', いろ],
+      ['大きさ', 'おおきさ', おおきさ],
+      ['隠す', 'かくす', かくす],
+      ['見せる', 'みせる', みせる],
+      ['模様', 'もよう', もよう],
+      ['空の色', 'そらのいろ', そらのいろ],
+      // 「じめん」は 今までどおり 地面を作る関数。床の変数は 地面／ちめん（下）
+      ['地面を作る', ['じめんをつくる', 'じめん'], じめんをつくる],
+      ['霧', 'きり', きり],
       // うごき（物理）
-      'じゅうりょく': じゅうりょく,
-      'かべにする': かべにする,
-      'はやさ': はやさ,
-      'ジャンプ': ジャンプ,
-      'ゆかにいる': ゆかにいる,
+      ['重力', 'じゅうりょく', じゅうりょく],
+      ['壁にする', 'かべにする', かべにする],
+      ['速さ', 'はやさ', はやさ],
+      ['ジャンプ', null, ジャンプ],
+      ['床にいる', 'ゆかにいる', ゆかにいる],
       // カメラ
-      'カメラをおく': カメラをおく,
-      'カメラをむける': カメラをむける,
-      'カメラをむかせる': カメラをむかせる,
-      'カメラをつける': カメラをつける,
-      'カメラのなかに': カメラのなかに,
-      'マウスでみまわす': マウスでみまわす,
-      'カメラのむき': カメラのむき,
+      ['カメラを置く', 'カメラをおく', カメラをおく],
+      ['カメラを向ける', 'カメラをむける', カメラをむける],
+      ['カメラを向かせる', 'カメラをむかせる', カメラをむかせる],
+      ['カメラを付ける', 'カメラをつける', カメラをつける],
+      ['カメラの中に', 'カメラのなかに', カメラのなかに],
+      ['マウスで見回す', 'マウスでみまわす', マウスでみまわす],
+      ['カメラの向き', 'カメラのむき', カメラのむき],
       // しらべる
-      'おされてる': おされてる,
-      'おした': おした,
-      'ぶつかってる': ぶつかってる,
-      'きょり': きょり,
-      'マウスX': マウスX,
-      'マウスY': マウスY,
-      'クリックした': クリックした,
-      'クリックちゅう': クリックちゅう,
+      ['押されてる', 'おされてる', おされてる],
+      ['押した', 'おした', おした],
+      ['ぶつかってる', null, ぶつかってる],
+      ['距離', 'きょり', きょり],
+      ['画面の横', 'がめんのよこ', がめんのよこ],
+      ['画面の縦', 'がめんのたて', がめんのたて],
+      ['マウスX', null, マウスX],
+      ['マウスY', null, マウスY],
+      // マウスのボタン（SPEC2 E）。「クリックした」「クリック中」は 左だけ
+      ['クリックした', null, クリックした],
+      ['左クリックした', 'ひだりクリックした', クリックした],
+      ['右クリックした', 'みぎクリックした', みぎクリックした],
+      ['中クリックした', 'なかクリックした', なかクリックした],
+      ['クリック中', 'クリックちゅう', クリックちゅう],
+      ['左クリック中', 'ひだりクリックちゅう', クリックちゅう],
+      ['右クリック中', 'みぎクリックちゅう', みぎクリックちゅう],
+      ['中クリック中', 'なかクリックちゅう', なかクリックちゅう],
       // すうじ
-      'らんすう': らんすう,
-      'せいすう': せいすう,
-      'ぜったいち': ぜったいち,
-      'さいだい': さいだい,
-      'さいしょう': さいしょう,
-      'へいほうこん': へいほうこん,
-      'サイン': サイン,
-      'コサイン': コサイン,
-      'かくど': かくど,
+      ['乱数', 'らんすう', らんすう],
+      ['整数', 'せいすう', せいすう],
+      ['絶対値', 'ぜったいち', ぜったいち],
+      ['最大', 'さいだい', さいだい],
+      ['最小', 'さいしょう', さいしょう],
+      ['平方根', 'へいほうこん', へいほうこん],
+      ['サイン', null, サイン],
+      ['コサイン', null, コサイン],
+      ['角度', 'かくど', かくど],
       // もじ と リスト
-      'つなげる': つなげる,
-      'ながさ': ながさ,
-      'くわえる': くわえる,
-      'とりのぞく': とりのぞく,
+      ['つなげる', null, つなげる],
+      ['長さ', 'ながさ', ながさ],
+      ['加える', 'くわえる', くわえる],
+      ['取り除く', 'とりのぞく', とりのぞく],
       // そのた
-      'かく': かく,
-      'まつ': まつ,
-      'おと': おと,
-      'てんすう': てんすう,
-      'メッセージ': メッセージ,
-      'ゲームしゅうりょう': ゲームしゅうりょう,
-      'じかん': じかん,
-      'とめる': とめる,
+      ['書く', 'かく', かく],
+      ['待つ', 'まつ', まつ],
+      ['音', 'おと', おと],
+      ['点数', 'てんすう', てんすう],
+      ['メッセージ', null, メッセージ],
+      ['ゲーム終了', 'ゲームしゅうりょう', ゲームしゅうりょう],
+      ['時間', 'じかん', じかん],
+      ['止める', 'とめる', とめる],
+      // ワールド（SPEC2 B）
+      ['探す', 'さがす', さがす],
       // SPEC 7章：プレイヤー
-      'そうさをきる': そうさをきる,
-      'プレイヤーをけす': プレイヤーをけす,
-      'はやさをかえる': はやさをかえる,
-      'いちにんしょう': いちにんしょう,
-      // アニメ部屋の アニメ
-      'アニメ': アニメ,
-      'アニメをとめる': アニメをとめる,
-      'プレイヤーのすがた': プレイヤーのすがた,
-    };
+      ['操作を切る', 'そうさをきる', そうさをきる],
+      ['プレイヤーを消す', 'プレイヤーをけす', プレイヤーをけす],
+      ['速さを変える', 'はやさをかえる', はやさをかえる],
+      ['一人称', 'いちにんしょう', いちにんしょう],
+      // アニメ部屋のアニメ
+      ['アニメ', null, アニメ],
+      ['アニメを止める', 'アニメをとめる', アニメをとめる],
+      ['プレイヤーの姿', 'プレイヤーのすがた', プレイヤーのすがた],
+    ];
 
-    // 安全あみ：英語の エラーが 外に もれないように、ぜんぶ つつむ
+    // 安全網：英語のエラーが外にもれないように、全部つつむ。
+    // つつむときの名前は「漢字（正式）」。ひらがなで呼んでも 漢字で怒られます。
     const つつんだ表 = {};
-    for (const 名 of Object.keys(表)) {
-      つつんだ表[名] = つつむ(名, 表[名]);
+    for (const [漢字, 別名, 関数] of 表) {
+      const w = つつむ(漢字, 関数);
+      つつんだ表[漢字] = w;
+      const ならび = (別名 === null || 別名 === undefined)
+        ? []
+        : (Array.isArray(別名) ? 別名 : [別名]);
+      for (const n of ならび) {
+        if (n && n !== 漢字) つつんだ表[n] = w;
+      }
     }
 
-    // 関数で ない もの（lang.js で「さいしょから ある へんすう」に なる）
+    // 関数でないもの（lang.js で「最初からある変数」になる）
     つつんだ表['プレイヤー'] = this.プレイヤー;
+    つつんだ表['地面'] = this.ちめん;
     つつんだ表['ちめん'] = this.ちめん;
+
+    // ワールドに置いたものも、名前でそのまま使えるようにする（SPEC2 B-3）。
+    // 同じ名前の組み込みのことばがあったら、組み込みのほうを守ります。
+    for (const [名前, もの] of this.世界の名前) {
+      if (!Object.prototype.hasOwnProperty.call(つつんだ表, 名前)) {
+        つつんだ表[名前] = もの;
+      }
+    }
 
     return つつんだ表;
   }

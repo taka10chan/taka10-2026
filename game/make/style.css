@@ -1,7 +1,9 @@
 /* =======================================================================
    ことだま — エディタ画面の見た目
+
    ・Gun Arena の他のページ（index.html / editor.html）と同じ色づかい。
-   ・画像・外部フォント・CDN は いっさい 読みこみません。
+   ・画像・外部フォント・CDN はいっさい読みこみません。
+   ・画面は3列。左＝ワールド一覧と設定 / 中央＝ゲーム画面とログ / 右＝コード。
    ======================================================================= */
 
 :root {
@@ -13,7 +15,7 @@
   --muted:  #8c9baa;   /* うすい文字 */
   --accent: #ffd66e;   /* アクセント（黄） */
   --danger: #ff6060;   /* エラーの赤 */
-  --ok:     #5ae182;   /* うごいている印（緑） */
+  --ok:     #5ae182;   /* 動いている印（緑） */
 
   /* 日本語が読める等幅。外から取ってこないで、入っているものだけ使う */
   --mono: 'BIZ UDGothic', 'MS Gothic', 'Osaka-Mono', 'Hiragino Kaku Gothic ProN',
@@ -23,6 +25,8 @@
   --code-fs: 15px;     /* コードの字の大きさ */
   --lh: 25px;          /* 1行の高さ。行番号とそろえるので px で固定する */
   --pad-top: 10px;     /* コードの上のすきま。行番号と同じ値にすること */
+
+  --world-w: 250px;    /* ワールド一覧の幅 */
 }
 
 * { box-sizing: border-box; }
@@ -83,7 +87,7 @@ a.btn { text-decoration: none; }
 .save { font-size: .72rem; color: #6d8093; }
 .save.dirty { color: var(--accent); }
 
-/* とびだすメニュー（サンプル・さくひん） */
+/* とびだすメニュー（サンプル・作品） */
 .menu { position: relative; }
 .pop {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
@@ -113,7 +117,7 @@ a.btn { text-decoration: none; }
 .pop .row .tool.del:hover { color: var(--danger); }
 
 /* -----------------------------------------------------------------------
-   まんなか
+   真ん中（3列）
    ----------------------------------------------------------------------- */
 #main { flex: 1 1 auto; min-height: 0; display: flex; gap: 10px; padding: 10px; }
 
@@ -127,6 +131,8 @@ a.btn { text-decoration: none; }
   font-size: .78rem; color: var(--muted); background: #121a22;
   user-select: none; -webkit-user-select: none;
 }
+/* ワールド一覧の中にある見出し。右にスクロールバーが出るぶん すきまを空ける */
+.pane-head.sub { border-top: 1px solid var(--line); padding-right: 20px; }
 .hint-small { font-size: .7rem; color: #5f7385; }
 .mini {
   min-height: 28px; padding: 2px 10px; cursor: pointer;
@@ -134,44 +140,128 @@ a.btn { text-decoration: none; }
   background: var(--panel2); color: var(--muted); font: inherit; font-size: .72rem;
 }
 .mini:hover { color: var(--ink); }
+.mini.del:hover { color: var(--danger); border-color: var(--danger); }
 
-/* ---------- 左：コード ---------- */
-#codePane { flex: 1 1 46%; min-width: 0; }
-#codeWrap { flex: 1 1 auto; min-height: 0; display: flex; background: #0a1015; }
+/* -----------------------------------------------------------------------
+   左：ワールド一覧 と 設定
+   ----------------------------------------------------------------------- */
+#worldPane { flex: 0 0 var(--world-w); min-width: 0; }
+#worldBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
-#gutter {
-  flex: none; width: 58px; overflow: hidden;
-  padding: var(--pad-top) 9px 44px 0; text-align: right;
-  background: #0b1218; border-right: 1px solid var(--line);
-  font: var(--code-fs)/var(--lh) var(--mono); color: #4e6274;
+/* 畳んだとき（一覧と設定を隠して、細い帯だけにする） */
+#worldPane.folded { flex: 0 0 46px; }
+#worldPane.folded #worldBody { display: none; }
+#worldPane.folded .pane-head > span:first-child { display: none; }
+#worldPane.folded .pane-head { justify-content: center; padding: 7px 4px; }
+
+/* ---- ものの一覧 ---- */
+#worldList { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+
+.witem {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  min-height: 34px; padding: 5px 8px; cursor: pointer; text-align: left;
+  border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--ink); font: inherit; font-size: .84rem;
+}
+.witem:hover { background: var(--panel2); }
+.witem.on { background: #2a2318; border-color: var(--accent); color: var(--accent); }
+.witem .ico { flex: none; width: 1.3em; text-align: center; opacity: .9; }
+.witem .nm  { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.witem .doc { flex: none; font-size: .78rem; opacity: .85; }
+
+/* 最初からあるもの（地面・プレイヤー）は選べない案内として薄く出す */
+.wfixed {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 9px; font-size: .78rem; color: #5f7385; cursor: default;
+}
+.whead {
+  padding: 6px 9px 2px; font-size: .68rem; color: #55697b; letter-spacing: .08em;
+}
+.wempty { padding: 10px 9px; font-size: .76rem; color: var(--muted); line-height: 1.9; }
+
+/* ---- ものを増やすボタン ---- */
+#addRow {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 6px 8px 10px; border-bottom: 1px solid var(--line);
+}
+.add {
+  min-height: 36px; padding: 0 8px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel2); color: var(--ink); font: inherit; font-size: .84rem;
+}
+.add:hover { border-color: var(--accent); color: var(--accent); }
+.add:active { transform: translateY(1px); }
+
+/* ---- 設定パネル ---- */
+#propEmpty { padding: 16px 12px; font-size: .78rem; color: var(--muted); line-height: 2; }
+#propEmpty[hidden] { display: none; }
+#propBox { padding: 8px 10px 16px; }
+#propBox[hidden] { display: none; }
+
+.prow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+/* hidden を付けたら かならず消える（display:flex に負けないように） */
+.prow[hidden], .pgroup[hidden], .num[hidden] { display: none; }
+.plabel { flex: none; width: 3.4em; font-size: .76rem; color: var(--muted); }
+.prow input[type=text], .prow select {
+  flex: 1 1 auto; min-width: 0; min-height: 32px; padding: 4px 8px;
+  background: #0d1319; border: 1px solid var(--line); border-radius: 7px;
+  color: var(--ink); font: inherit; font-size: .84rem;
+}
+.prow input[type=text]:focus, .prow select:focus { outline: none; border-color: var(--accent); }
+.prow input[type=text].bad { border-color: var(--danger); }
+.prow input[type=color] {
+  flex: none; width: 44px; height: 32px; padding: 2px;
+  background: #0d1319; border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
+}
+.ccode { font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+
+.perr {
+  margin: 2px 0 6px; padding: 5px 8px; border-radius: 6px;
+  background: rgba(255,96,96,.12); border-left: 3px solid var(--danger);
+  color: #ffb3b3; font-size: .74rem; line-height: 1.7;
+}
+.perr[hidden] { display: none; }
+
+.pgroup { margin: 10px 0 4px; }
+.ptitle { font-size: .7rem; color: #55697b; letter-spacing: .06em; margin-bottom: 4px; }
+.pnums { display: flex; gap: 5px; }
+.num { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.num .cap {
+  font-size: .66rem; color: var(--muted); cursor: ew-resize;
   user-select: none; -webkit-user-select: none;
 }
-#gutter div { height: var(--lh); }
-#gutter div.err { color: var(--danger); font-weight: 700; }
-#gutter div.here { color: var(--accent); }
-
-#codeArea { position: relative; flex: 1 1 auto; min-width: 0; }
-
-/* 行を光らせる下じき（textarea のうしろ） */
-#hlLayer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-#hlLayer .hl { position: absolute; left: 0; right: 0; height: var(--lh); }
-#hlLayer .hl.err { background: rgba(255,96,96,.13); box-shadow: inset 3px 0 0 var(--danger); }
-#hlLayer .hl.flash { background: rgba(255,214,110,.26); animation: hlfade 1.4s ease-out forwards; }
-@keyframes hlfade { from { background: rgba(255,214,110,.34); } to { background: rgba(255,214,110,0); } }
-
-#code {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  margin: 0; padding: var(--pad-top) 12px 44px; border: 0; outline: none; resize: none;
-  background: transparent; color: var(--ink); caret-color: var(--accent);
-  font: var(--code-fs)/var(--lh) var(--mono);
-  white-space: pre; overflow: auto; tab-size: 2;
+.num .cap:hover { color: var(--accent); }
+.num input {
+  width: 100%; min-width: 0; min-height: 30px; padding: 3px 5px;
+  background: #0d1319; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--ink); font-family: var(--mono); font-size: .8rem;
 }
-#code::selection { background: rgba(255,214,110,.28); }
+.num input:focus { outline: none; border-color: var(--accent); }
 
-/* ---------- 右 ---------- */
-#rightPane { flex: 1 1 54%; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.chk {
+  display: flex; align-items: center; gap: 7px; padding: 4px 2px;
+  font-size: .78rem; color: #b9c6d3; cursor: pointer;
+}
+.chk input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+.pbtns { display: flex; gap: 6px; margin-top: 12px; }
+.pbtns .mini { flex: 1 1 auto; min-height: 34px; }
+
+/* -----------------------------------------------------------------------
+   中央：ゲーム画面 と ログ
+   ----------------------------------------------------------------------- */
+#centerPane { flex: 1 1 44%; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 
 #stagePane { flex: 1 1 auto; min-height: 180px; }
+.tools { display: inline-flex; gap: 4px; }
+.tool-b {
+  min-height: 26px; padding: 2px 9px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel2); color: var(--muted); font: inherit; font-size: .72rem;
+}
+.tool-b:hover { color: var(--ink); }
+.tool-b.on { border-color: var(--accent); color: var(--accent); background: #2a2318; }
+
 #stageWrap {
   flex: 1 1 auto; min-height: 0; position: relative;
   display: flex; align-items: center; justify-content: center;
@@ -183,8 +273,8 @@ a.btn { text-decoration: none; }
 
 #screen {
   display: block; width: 100%; height: 100%;
-  object-fit: contain;        /* 640x480 のかたちを くずさずに 大きくする */
-  background: transparent;    /* あまった よこの ぶんは わくの色に とけこませる */
+  object-fit: contain;        /* 640x480 の形をくずさずに大きくする */
+  background: transparent;    /* 余った横の分は枠の色にとけこませる */
   -webkit-user-drag: none; touch-action: none;
 }
 
@@ -200,7 +290,7 @@ a.btn { text-decoration: none; }
 #stageHint[hidden] { display: none; }
 
 /* ---------- ログ ---------- */
-#logPane { flex: 0 0 32%; min-height: 116px; }
+#logPane { flex: 0 0 30%; min-height: 116px; }
 #log {
   flex: 1 1 auto; overflow-y: auto; padding: 8px 10px;
   font-family: var(--mono); font-size: 13px; line-height: 1.75;
@@ -215,8 +305,60 @@ a.btn { text-decoration: none; }
 }
 #log .li.err:hover { background: rgba(255,96,96,.18); }
 #log .li.err .ln { color: var(--accent); font-weight: 700; }
+#log .li.err .scr { color: #9fd0ff; font-weight: 700; }
 #log .li.err .hint { display: block; margin-top: 3px; color: #ffd0a8; }
 #log .li.err .jump { display: block; margin-top: 3px; font-size: .72rem; color: #b98a8a; }
+
+/* -----------------------------------------------------------------------
+   右：コードを書くところ
+   ----------------------------------------------------------------------- */
+#codePane { flex: 1 1 34%; min-width: 0; }
+
+#codeTabs {
+  flex: none; display: flex; gap: 4px; padding: 6px 6px 0;
+  overflow-x: auto; background: #121a22;
+  user-select: none; -webkit-user-select: none;
+}
+.ctab {
+  flex: none; min-height: 32px; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--panel); color: var(--muted); font: inherit; font-size: .8rem;
+  white-space: nowrap; max-width: 16ch; overflow: hidden; text-overflow: ellipsis;
+}
+.ctab:hover { color: var(--ink); }
+.ctab.on { background: #0a1015; color: var(--accent); border-color: var(--accent); }
+
+#codeWrap { flex: 1 1 auto; min-height: 0; display: flex; background: #0a1015; }
+
+#gutter {
+  flex: none; width: 52px; overflow: hidden;
+  padding: var(--pad-top) 9px 44px 0; text-align: right;
+  background: #0b1218; border-right: 1px solid var(--line);
+  font: var(--code-fs)/var(--lh) var(--mono); color: #4e6274;
+  user-select: none; -webkit-user-select: none;
+}
+#gutter div { height: var(--lh); }
+#gutter div.err { color: var(--danger); font-weight: 700; }
+#gutter div.here { color: var(--accent); }
+
+#codeArea { position: relative; flex: 1 1 auto; min-width: 0; }
+
+/* 行を光らせる下敷き（textarea の後ろ） */
+#hlLayer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+#hlLayer .hl { position: absolute; left: 0; right: 0; height: var(--lh); }
+#hlLayer .hl.err { background: rgba(255,96,96,.13); box-shadow: inset 3px 0 0 var(--danger); }
+#hlLayer .hl.flash { background: rgba(255,214,110,.26); animation: hlfade 1.4s ease-out forwards; }
+@keyframes hlfade { from { background: rgba(255,214,110,.34); } to { background: rgba(255,214,110,0); } }
+
+#code {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: var(--pad-top) 12px 44px; border: 0; outline: none; resize: none;
+  background: transparent; color: var(--ink); caret-color: var(--accent);
+  font: var(--code-fs)/var(--lh) var(--mono);
+  white-space: pre; overflow: auto; tab-size: 2;
+}
+#code::selection { background: rgba(255,214,110,.28); }
 
 /* -----------------------------------------------------------------------
    単語帳（右から出る）
@@ -273,7 +415,7 @@ a.btn { text-decoration: none; }
   font-size: .74rem; color: var(--muted); text-align: center;
 }
 
-/* 読みこみに失敗したとき（まっくらなまま放置しないため） */
+/* 読みこみに失敗したとき（真っ暗なまま放置しないため） */
 #fatal {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
   padding: 12px 16px; background: #7a1f1f; color: #fff;
@@ -281,14 +423,35 @@ a.btn { text-decoration: none; }
 }
 #fatal[hidden] { display: none; }
 
+/* 英語のくわしい中身。読まなくていいのでうすく小さく出す */
+#log .li.dim {
+  color: #5f6b78;
+  font-size: .72rem;
+  margin-left: 8px;
+  word-break: break-all;
+}
+
 /* -----------------------------------------------------------------------
-   せまい画面（タブレット・スマホ）は たてに つむ
+   せまい画面（タブレット・スマホ）は縦に積む
    ----------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  :root { --world-w: 218px; }
+}
+
 @media (max-width: 900px) {
-  #main { flex-direction: column; padding: 8px; gap: 8px; }
-  #codePane { flex: 1 1 auto; min-height: 210px; }
-  #rightPane { flex: 1 1 auto; min-height: 260px; }
-  #logPane { flex: 0 0 34%; min-height: 96px; }
+  /* 縦に積む。入りきらないぶんは #main ごとスクロールさせる
+     （html/body は overflow:hidden なので、ここでスクロールできないと
+       下のコード欄に手がとどかなくなる） */
+  #main { flex-direction: column; padding: 8px; gap: 8px; overflow-y: auto; }
+
+  /* 積むときは、それぞれ高さを決めて、中でスクロールさせる */
+  #worldPane  { flex: 0 0 auto; max-height: 46vh; }
+  #worldPane.folded { flex: 0 0 auto; max-height: none; }
+  #centerPane { flex: 0 0 auto; }
+  #stagePane  { flex: 0 0 auto; height: 46vh; min-height: 220px; }
+  #logPane    { flex: 0 0 auto; height: 150px; min-height: 120px; }
+  #codePane   { flex: 0 0 auto; height: 60vh; min-height: 300px; }
+
   #gutter { width: 44px; }
   .brand { font-size: 1rem; padding-right: 4px; }
   .workinfo { width: 100%; order: 9; justify-content: flex-end; }
@@ -298,21 +461,20 @@ a.btn { text-decoration: none; }
   #bar { gap: 6px; padding: 6px 8px; }
   .btn { padding: 0 11px; font-size: .86rem; }
   .btn.primary { min-width: 108px; }
-  /* さくひんの なまえは ボタンの となりに くっつける（たてに ながくしない） */
+  /* 作品の名前はボタンのとなりにくっつける（縦に長くしない） */
   .workinfo { width: auto; order: 0; margin-left: auto; gap: 6px; }
   #workName { max-width: 12ch; }
   :root { --code-fs: 14px; --lh: 23px; }
+  #worldPane { max-height: 44vh; }
+  .plabel { width: 3em; }
+  .pane-head { padding: 6px 9px; }
+  .tools { gap: 3px; }
+  .tool-b { padding: 2px 7px; }
+  #stageFocusHint { display: none; }
 }
 
-/* 指でさわる端末では もっと大きく */
+/* 指でさわる端末ではもっと大きく */
 @media (pointer: coarse) {
   .btn, .pop button.item, .cat-h { min-height: 48px; }
-}
-
-/* 英語のくわしい中身。読まなくていいので うすく小さく出す */
-#log .li.dim {
-  color: #5f6b78;
-  font-size: .72rem;
-  margin-left: 8px;
-  word-break: break-all;
+  .witem, .add { min-height: 42px; }
 }
