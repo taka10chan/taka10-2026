@@ -2549,6 +2549,17 @@ function onKeyCapture(e) {
     }
     return;   // runtime.js の listener にそのまま渡す
   }
+  // ★Ctrl+D（複製）は ここで受けます★
+  //   このすぐ下で「ゲーム用のキーはここで止める」ことにしているので、
+  //   D を止めると、下の document のショートカットまで届きません。
+  //   画面に「Ctrl+D で複製」と書いてあるのに効かないと 使う人が困るので、
+  //   一覧や設定パネルを見ているときは ここで複製します
+  //   （ゲーム画面を見ているときは 上で return しているので、下の document 側が受けます）。
+  if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')
+      && !文字を打っている() && 選択id && !running) {
+    e.preventDefault();
+    複製する(選択id);
+  }
   // コードを書いているときなど。ゲーム用のキーはゲームに見せない。
   if (keyName(e)) e.stopImmediatePropagation();
 }
