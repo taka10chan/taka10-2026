@@ -169,7 +169,12 @@ a.btn { text-decoration: none; }
 .witem .nm  { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .witem .doc { flex: none; font-size: .78rem; opacity: .85; }
 
-/* 最初からあるもの（地面・プレイヤー）は選べない案内として薄く出す */
+/* 最初からあるもの（地面・プレイヤー）。置いたものと同じように選べる。
+   作品のデータではないので、字だけ すこし ひかえめにする */
+.witem.fixed { color: #a9b8c6; }
+.witem.fixed.on { color: var(--accent); }
+
+/* 使っていない古い書きかた（残しておいても じゃまにならない） */
 .wfixed {
   display: flex; align-items: center; gap: 6px;
   padding: 4px 9px; font-size: .78rem; color: #5f7385; cursor: default;
@@ -216,6 +221,7 @@ a.btn { text-decoration: none; }
 .prow { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 /* hidden を付けたら かならず消える（display:flex に負けないように） */
 .prow[hidden], .pgroup[hidden], .num[hidden] { display: none; }
+.pbtns[hidden], .pnote[hidden], .pkeys[hidden], .pnotice[hidden] { display: none; }
 .plabel { flex: none; width: 3.4em; font-size: .76rem; color: var(--muted); }
 .prow input[type=text], .prow select {
   flex: 1 1 auto; min-width: 0; min-height: 32px; padding: 4px 8px;
@@ -268,6 +274,30 @@ a.btn { text-decoration: none; }
 .pnote { margin-top: 5px; font-size: .7rem; color: #6d8194; line-height: 1.7; }
 /* ---- キーの案内（Ctrl+D で複製）---- */
 .pkeys { margin-top: 7px; font-size: .7rem; color: #6d8194; text-align: center; }
+
+/* -----------------------------------------------------------------------
+   最初からあるもの（プレイヤー・地面）の設定
+
+   ここで変えた値は ▶ プレイのたびに元に戻ります。「変えたのに戻った」で
+   こまらないように、パネルの上に はっきり書いておくための欄です。
+   ----------------------------------------------------------------------- */
+.pnotice {
+  margin: 2px 0 10px; padding: 7px 9px; border-radius: 7px;
+  background: rgba(230,180,80,.10); border-left: 3px solid var(--accent);
+  color: #e2cf9e; font-size: .72rem; line-height: 1.8;
+}
+.pnotice code {
+  font-family: var(--mono); font-size: .95em;
+  padding: 0 3px; border-radius: 4px; background: rgba(0,0,0,.32); color: #f0dfae;
+}
+/* 変えられない名前は、さわれないと ひと目で分かるように 灰色にする */
+.prow input[type=text][readonly] {
+  color: #7f8f9d; background: #0a0f14; border-style: dashed; cursor: default;
+}
+.prow input[type=text][readonly]:focus { border-color: var(--line); }
+/* 体の大きさ（倍）の見出しは 引っぱって増やせないので、矢印カーソルにしない */
+.num .cap.fixedcap { cursor: default; }
+.num .cap.fixedcap:hover { color: var(--muted); }
 
 /* -----------------------------------------------------------------------
    中央：ゲーム画面 と ログ

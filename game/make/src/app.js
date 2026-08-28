@@ -901,6 +901,59 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) flush
    ======================================================================= */
 let 選択id = null;        // いま選んでいるものの id（null なら選んでいない）
 
+/* -----------------------------------------------------------------------
+   最初からあるもの（プレイヤー・地面）
+
+   この2つは 作品のデータ（objects）では ありません。runtime.js が
+   ▶ プレイのたびに 作り直しているものです。だから objects には
+   ぜったいに 書き足しません（保存の形が変わると、前に作った作品がこわれます）。
+
+   選ぶときの id には、置いたものの id と ぜったいにぶつからない
+   「@」で始まる合いことばを使います（置いたものの id は newId('o') が作るので
+   かならず「o」で始まります）。
+   ----------------------------------------------------------------------- */
+const 組み込み一覧 = [
+  {
+    キー: '@地面', 名前: '地面', アイコン: '🟫',
+    説明: '最初からある広い床です。コードでは 地面 と書けば そのまま使えます。'
+  },
+  {
+    キー: '@プレイヤー', 名前: 'プレイヤー', アイコン: '🧍',
+    説明: '最初からいる人です。コードでは プレイヤー と書けば そのまま使えます。'
+  }
+];
+const 組み込みのキー集 = new Set(組み込み一覧.map((b) => b.キー));
+
+/** その id は「最初からあるもの」か */
+function 組み込みか(id) {
+  return !!id && 組み込みのキー集.has(id);
+}
+
+/** 合いことばから 一覧の中身を引く */
+function 組み込みを取る(キー) {
+  return 組み込み一覧.find((b) => b.キー === キー) || null;
+}
+
+/**
+ * runtime.js が持っている 本物の「もの」を取り出す。
+ * これは 作品のデータでは ないので、ここで変えた値は 保存されません。
+ * （▶ プレイのたびに runtime.js が 作り直すので、そのとき元に戻ります）
+ */
+function 組み込みの実体(キー) {
+  if (!game || !組み込みか(キー)) return null;
+  const プレイヤーか = (キー === '@プレイヤー');
+  try {
+    const 直に = プレイヤーか ? game.プレイヤー : (game.ちめん || game['地面']);
+    if (直に && typeof 直に === 'object') return 直に;
+  } catch (_) { /* 下の builtins() で もう一度さがす */ }
+  try {
+    const b = (typeof game.builtins === 'function') ? game.builtins() : null;
+    const o = b ? (プレイヤーか ? b['プレイヤー'] : b['地面']) : null;
+    if (o && typeof o === 'object') return o;
+  } catch (_) { /* 3D がまだ出ていないときは null でよい */ }
+  return null;
+}
+
 /** 一覧の見出し（「置いたもの」「倉庫」など）を1行足す */
 function 一覧の見出し(文, 説明) {
   const h = document.createElement('div');
@@ -955,6 +1008,31 @@ function 一覧の行(o) {
   worldList.appendChild(b);
 }
 
+/** 「最初からあるもの」の行を1つ作って一覧に足す（置いたものと同じ見た目） */
+function 一覧の組み込みの行(b) {
+  const えらんでいる = (b.キー === 選択id);
+
+  const el = document.createElement('button');
+  el.className = 'witem fixed' + (えらんでいる ? ' on' : '');
+  el.type = 'button';
+  el.setAttribute('role', 'option');
+  el.setAttribute('aria-selected', えらんでいる ? 'true' : 'false');
+  el.title = b.説明 + '（ここで変えた値は ▶ プレイのたびに元に戻ります）';
+
+  const ic = document.createElement('span');
+  ic.className = 'ico';
+  ic.textContent = b.アイコン;
+
+  const nm = document.createElement('span');
+  nm.className = 'nm';
+  nm.textContent = b.名前;
+
+  el.appendChild(ic);
+  el.appendChild(nm);
+  el.addEventListener('click', () => 選ぶ(b.キー));
+  worldList.appendChild(el);
+}
+
 /**
  * ワールド一覧を作り直す（SPEC2 H-1）。
  *
@@ -969,17 +1047,10 @@ function renderWorldList() {
   const w = いまの作品();
   worldList.textContent = '';
 
-  // --- 最初からあるもの（コードから使えるが、設定は変えられない） ---
-  一覧の見出し('最初からあるもの');
-  [['🟫', '地面'], ['🧍', 'プレイヤー']].forEach((つい) => {
-    const d = document.createElement('div');
-    d.className = 'wfixed';
-    d.title = 'いつでもコードから使えます（設定は変えられません）';
-    const i = document.createElement('span'); i.className = 'ico'; i.textContent = つい[0];
-    const n = document.createElement('span'); n.textContent = つい[1];
-    d.appendChild(i); d.appendChild(n);
-    worldList.appendChild(d);
-  });
+  // --- 最初からあるもの（選ぶと 位置・向き・色などを その場で変えられる） ---
+  一覧の見出し('最初からあるもの',
+             'いつでもコードから使えます。ここで変えた値は ▶ プレイのたびに元に戻ります');
+  組み込み一覧.forEach(一覧の組み込みの行);
 
   // --- 置いたもの と 倉庫 に分ける ---
   const 置いたもの = w.objects.filter((o) => !倉庫にある(o));
@@ -1022,8 +1093,11 @@ function 選ぶ(id, 三Dから) {
   renderWorldList();
   renderProps();
   renderTabs();
-  if (選択id) タブを開く(選択id); else タブを開く('main');
-  if (ed && !三Dから) { try { ed.選ぶ(選択id); } catch (_) { /* 道具が無くても平気 */ } }
+  // 最初からあるもの（プレイヤー・地面）には コードのタブが ありません
+  if (選択id && !組み込みか(選択id)) タブを開く(選択id); else タブを開く('main');
+  if (ed && !三Dから) {
+    try { ed.選ぶ(組み込みか(選択id) ? null : 選択id); } catch (_) { /* 道具が無くても平気 */ }
+  }
 }
 
 /* =======================================================================
@@ -1042,6 +1116,10 @@ function まるめる(n) {
 
 /** 設定パネルを、選んでいるものの中身で書きかえる */
 function renderProps() {
+  // 最初からあるもの（プレイヤー・地面）は 出しかたが ちがう
+  if (組み込みか(選択id)) { 組み込みの設定を出す(選択id); return; }
+  組み込みの見た目(false, null);
+
   const o = 選んでいるもの();
   if (!o) {
     propBox.hidden = true;
@@ -1127,6 +1205,7 @@ function 三Dに反映(id, patch) {
 
 // --- 名前 ---
 pName.addEventListener('input', () => {
+  if (組み込みか(選択id)) return;     // 最初からあるものの名前は 変えられない
   const o = 選んでいるもの();
   if (!o) return;
   const だめ = 名前のだめな理由(pName.value, o.id);
@@ -1149,6 +1228,7 @@ pName.addEventListener('input', () => {
 });
 // 直せないまま外れたら、元の名前に戻す（変な名前で保存されないように）
 pName.addEventListener('blur', () => {
+  if (組み込みか(選択id)) return;
   const o = 選んでいるもの();
   if (!o) return;
   if (名前のだめな理由(pName.value, o.id)) {
@@ -1165,11 +1245,13 @@ Object.keys(数字欄).forEach((id) => {
   const 大きさ系 = (フィールド === '横' || フィールド === '高さ' || フィールド === '奥行き');
 
   el.addEventListener('input', () => {
-    if (!選んでいるもの()) return;
     let v = parseFloat(el.value);
     if (!Number.isFinite(v)) return;                       // 打ちかけは待つ
     if (大きさ系) v = Math.max(0.1, Math.abs(v));
     const patch = {}; patch[フィールド] = v;
+    // 最初からあるものは 作品のデータに書かず、3D のほうを直に変える
+    if (組み込みか(選択id)) { 組み込みを変える(patch); return; }
+    if (!選んでいるもの()) return;
     設定を変える(patch);
   });
   el.addEventListener('blur', () => renderProps());
@@ -1184,14 +1266,15 @@ document.querySelectorAll('.num .cap').forEach((cap) => {
   let つかんでいる = false, 前x = 0;
 
   cap.addEventListener('pointerdown', (e) => {
-    if (!選んでいるもの()) return;
+    if (!選んでいるもの() && !組み込みか(選択id)) return;
     つかんでいる = true; 前x = e.clientX;
     try { cap.setPointerCapture(e.pointerId); } catch (_) { /* 平気 */ }
     e.preventDefault();
   });
   cap.addEventListener('pointermove', (e) => {
     if (!つかんでいる) return;
-    const o = 選んでいるもの();
+    const 組み込み = 組み込みか(選択id);
+    const o = 組み込み ? 組み込みの実体(選択id) : 選んでいるもの();
     if (!o) return;
     const きざみ = (フィールド === '向き' || フィールド === '傾き') ? 1 : 0.25;
     let v = 数(o[フィールド], 0) + (e.clientX - 前x) * きざみ;
@@ -1199,7 +1282,7 @@ document.querySelectorAll('.num .cap').forEach((cap) => {
     if (大きさ系) v = Math.max(0.1, v);
     v = Math.round(v * 100) / 100;
     const patch = {}; patch[フィールド] = v;
-    設定を変える(patch);
+    if (組み込み) 組み込みを変える(patch); else 設定を変える(patch);
     el.value = String(v);
   });
   const はなす = (e) => {
@@ -1214,13 +1297,23 @@ document.querySelectorAll('.num .cap').forEach((cap) => {
 // --- 色 ---
 pColor.addEventListener('input', () => {
   pColorText.textContent = pColor.value;
+  if (組み込みか(選択id)) { 組み込みを変える({ 色: pColor.value }); return; }
   設定を変える({ 色: pColor.value });
 });
 
 // --- 当たり判定のチェックボックス ---
-pWall.addEventListener('change', () => 設定を変える({ 壁: pWall.checked }));
-pGrav.addEventListener('change', () => 設定を変える({ 重力: pGrav.checked }));
-pVis .addEventListener('change', () => 設定を変える({ 見える: pVis.checked }));
+pWall.addEventListener('change', () => {
+  if (組み込みか(選択id)) { 組み込みの壁(pWall.checked); return; }
+  設定を変える({ 壁: pWall.checked });
+});
+pGrav.addEventListener('change', () => {
+  if (組み込みか(選択id)) { 組み込みの重力(pGrav.checked); return; }
+  設定を変える({ 重力: pGrav.checked });
+});
+pVis .addEventListener('change', () => {
+  if (組み込みか(選択id)) { 組み込みを変える({ 見える: pVis.checked }); return; }
+  設定を変える({ 見える: pVis.checked });
+});
 
 // --- モデル ---
 pModel.addEventListener('change', () => 設定を変える({ モデル: pModel.value || null }));
@@ -1312,6 +1405,234 @@ function 場所を移す(id) {
 }
 
 btnSoko.addEventListener('click', () => 場所を移す(選択id));
+
+/* =======================================================================
+   6c. 最初からあるもの（プレイヤー・地面）の設定パネル
+
+   使う人の言葉:
+     「キャラの向きが変えられなーい」
+
+   一覧の「最初からあるもの」を選んだときは、ふつうの設定パネルを
+   すこし着がえさせて 使います（index.html はさわらない約束なので、
+   足りない欄は ここで作って 差しこみます）。
+
+   ★いちばん大事なこと★
+     ここで変えた値は 作品のデータ（objects）には ぜったいに入れません。
+     プレイヤーと地面は runtime.js が ▶ プレイのたびに 作り直すものなので、
+     変えた値は プレイのたびに 元に戻ります。それが正しい動きです。
+     「変えたのに戻った」で こまらないように、パネルの上に そう書いておきます。
+   ======================================================================= */
+
+// index.html にある欄（まとめて 出したり 消したり するために つかまえておく）
+const 名前欄     = pName.closest('.prow');
+const 位置欄     = $('pX').closest('.pgroup');
+const 大きさ欄   = $('pW').closest('.pgroup');
+const 回転欄     = $('pRY').closest('.pgroup');
+const 色欄       = pColor.closest('.prow');
+const 当たり欄   = pWall.closest('.pgroup');
+const ボタン欄   = btnDup.closest('.pbtns');
+const 場所欄     = btnSoko.closest('.pgroup');
+
+/** 「▶ プレイのたびに元に戻ります」の案内（これが無いと 使う人が こまります） */
+const 組み込み案内 = document.createElement('div');
+組み込み案内.className = 'pnotice';
+組み込み案内.hidden = true;
+(function 案内の文を作る() {
+  組み込み案内.appendChild(document.createTextNode(
+    'ここで変えた値は、▶ プレイのたびに元に戻ります。ずっと変えたいときは、コードに '));
+  const c = document.createElement('code');
+  c.textContent = '向ける(プレイヤー, 90)';
+  組み込み案内.appendChild(c);
+  組み込み案内.appendChild(document.createTextNode(' のように書いてください。'));
+}());
+
+/** 名前の下に出す「変えられません」の ひとこと */
+const 名前の注 = document.createElement('div');
+名前の注.className = 'pnote';
+名前の注.hidden = true;
+
+/** プレイヤーの「大きさ（倍）」。体ぜんたいを 大きく・小さく します */
+const 倍率欄   = document.createElement('div');
+const 倍率入力 = document.createElement('input');
+(function 倍率の欄を作る() {
+  倍率欄.className = 'pgroup';
+  倍率欄.hidden = true;
+
+  const 見出し = document.createElement('div');
+  見出し.className = 'ptitle';
+  見出し.textContent = '大きさ';
+
+  const 並び = document.createElement('div');
+  並び.className = 'pnums';
+
+  const ラベル = document.createElement('label');
+  ラベル.className = 'num';
+  const キャップ = document.createElement('span');
+  キャップ.className = 'cap fixedcap';
+  キャップ.textContent = '体の大きさ（倍）';
+
+  倍率入力.type = 'number';
+  倍率入力.step = '0.1';
+  倍率入力.min = '0.1';
+  倍率入力.setAttribute('aria-label', '体の大きさ（倍）');
+
+  ラベル.appendChild(キャップ);
+  ラベル.appendChild(倍率入力);
+  並び.appendChild(ラベル);
+  倍率欄.appendChild(見出し);
+  倍率欄.appendChild(並び);
+}());
+
+(function 組み込みの欄を差しこむ() {
+  // 案内は パネルのいちばん上
+  propBox.insertBefore(組み込み案内, propBox.firstChild);
+  // 名前の注は 名前のエラー欄の すぐ下
+  if (pNameErr.parentNode) pNameErr.parentNode.insertBefore(名前の注, pNameErr.nextSibling);
+  // 大きさ（倍）は ふつうの「大きさ」の すぐ下（どちらか片方だけ出します）
+  if (大きさ欄 && 大きさ欄.parentNode) 大きさ欄.parentNode.insertBefore(倍率欄, 大きさ欄.nextSibling);
+}());
+
+/** 欄を出す／消す（無くても落ちない） */
+function 欄をみせる(el, みせる) {
+  if (el) el.hidden = !みせる;
+}
+
+/**
+ * 設定パネルを「最初からあるもの」用に着がえさせる／もとに戻す。
+ * @param オン  true なら 最初からあるもの用
+ * @param キー  '@プレイヤー' か '@地面'
+ */
+function 組み込みの見た目(オン, キー) {
+  const プレイヤーか = (キー === '@プレイヤー');
+
+  欄をみせる(組み込み案内, オン);
+  欄をみせる(名前の注, オン);
+
+  // 大きさ … プレイヤーは「倍」ひとつ、地面は 横・高さ・奥行き
+  欄をみせる(倍率欄, オン && プレイヤーか);
+  欄をみせる(大きさ欄, !オン || !プレイヤーか);
+
+  // 壁・重力・見える … プレイヤーは 自動で決まるので 出さない
+  欄をみせる(当たり欄, !オン || !プレイヤーか);
+
+  // 倉庫へしまう・複製・削除は、最初からあるものには 出さない
+  欄をみせる(場所欄, !オン);
+  欄をみせる(ボタン欄, !オン);
+  欄をみせる(keyNote, !オン);
+
+  // 名前は 最初からあるものでは 変えられない
+  pName.readOnly = !!オン;
+  pName.classList.toggle('locked', !!オン);
+  pName.title = オン ? '最初からあるものの名前は変えられません' : '';
+  if (オン) {
+    pName.classList.remove('bad');
+    pNameErr.hidden = true;
+  }
+}
+
+/** プレイヤーの いまの「大きさ（倍）」 */
+function 体の倍率(o) {
+  const もと = 数(o.__もとたかさ, 0);
+  if (!(もと > 0)) return 1;
+  return 数(o.高さ, もと) / もと;
+}
+
+/** 設定パネルを「最初からあるもの」の中身で書きかえる */
+function 組み込みの設定を出す(キー) {
+  const b = 組み込みを取る(キー);
+  if (!b) return;
+
+  propBox.hidden = false;
+  propEmpty.hidden = true;
+  propTarget.textContent = b.名前 + '（最初からあるもの）';
+  組み込みの見た目(true, キー);
+  pModelRow.hidden = true;
+
+  pName.value = b.名前;
+  名前の注.textContent = '名前は変えられません。コードでは ' + b.名前 + ' と書けば そのまま使えます。';
+
+  const o = 組み込みの実体(キー);
+  if (!o) return;                 // 3D がまだ出ていないとき（数字は そのまま）
+
+  const 入れる = (id, v) => {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = String(まるめる(v));
+  };
+  入れる('pX', o.x); 入れる('pY', o.y); 入れる('pZ', o.z);
+  入れる('pRY', o.向き); 入れる('pRX', o.傾き);
+
+  if (キー === '@プレイヤー') {
+    if (document.activeElement !== 倍率入力) 倍率入力.value = String(まるめる(体の倍率(o)));
+  } else {
+    入れる('pW', o.横); 入れる('pH', o.高さ); 入れる('pD', o.奥行き);
+    pWall.checked = !!o.__かべ;
+    pGrav.checked = !!o.__じゅうりょく;
+    pVis.checked  = (o.見える !== false);
+  }
+
+  const いろ = 色にする(o.色, '#ffffff');
+  pColor.value = いろ;
+  pColorText.textContent = いろ;
+}
+
+/**
+ * 3D のほうを 直に変える。作品のデータには 何も書きません。
+ * runtime.js は 毎フレーム このフィールドを見て 見た目に うつすので、
+ * ここで入れれば その場で 画面が変わります。
+ */
+function 組み込みを変える(patch) {
+  const o = 組み込みの実体(選択id);
+  if (!o || !patch) return;
+  try { Object.assign(o, patch); } catch (_) { /* こわれても 画面は止めない */ }
+}
+
+/** プレイヤーの体を 大きく・小さくする（大きさ(プレイヤー, 倍) と同じ） */
+function 体の倍率を変える(倍) {
+  const o = 組み込みの実体(選択id);
+  if (!o) return;
+  const ば = Math.max(0.1, Math.min(20, 数(倍, 1)));
+  try {
+    Object.assign(o, {
+      横:   数(o.__もとよこ, 1) * ば,
+      高さ: 数(o.__もとたかさ, 1) * ば,
+      奥行き: 数(o.__もとおくゆき, 1) * ば
+    });
+  } catch (_) { /* 平気 */ }
+}
+
+/** 地面の「壁（通り抜けできない）」 */
+function 組み込みの壁(オン) {
+  const o = 組み込みの実体(選択id);
+  if (!o) return;
+  o.__かべ = !!オン;
+  o.__かべ設定 = !!オン;
+}
+
+/** 地面の「重力（落ちる）」 */
+function 組み込みの重力(オン) {
+  const o = 組み込みの実体(選択id);
+  if (!o) return;
+  o.__じゅうりょく = !!オン;
+  o.__じゅうりょく設定 = !!オン;
+  if (!オン) o.__vy = 0;
+}
+
+/**
+ * ワールドを作り直したあとに呼ぶ。
+ * プレイヤーと地面は 作り直されて 元の値に戻っているので、
+ * パネルの数字も そこに合わせ直します。
+ */
+function 組み込みなら設定を出し直す() {
+  if (組み込みか(選択id)) renderProps();
+}
+
+倍率入力.addEventListener('input', () => {
+  if (!組み込みか(選択id)) return;
+  const v = parseFloat(倍率入力.value);
+  if (!Number.isFinite(v) || v <= 0) return;      // 打ちかけは待つ
+  体の倍率を変える(v);
+});
+倍率入力.addEventListener('blur', () => renderProps());
 
 /* =======================================================================
    7. ものを置く・複製する・消す
@@ -1613,6 +1934,7 @@ function 世界を作り直す() {
   try { g.reset(); } catch (_) { /* 作り直せなくても止めない */ }
   try { ワールドを作る(いまの作品().objects); } catch (_) { /* 同上 */ }
   編集器を作り直す();
+  組み込みなら設定を出し直す();     // プレイヤーと地面は 作り直されたので 数字を入れ直す
   stageHint.hidden = !!(g && g.renderer);
 }
 
@@ -1755,6 +2077,7 @@ function run() {
     showError(err, 'ワールド');
     return;
   }
+  組み込みなら設定を出し直す();   // プレイヤーと地面は 作り直されたので 数字を入れ直す
 
   // 2. コードを読む。
   //    ★スクリプトごとに parse するので「どのスクリプトの何行目か」が分かります。
@@ -2565,7 +2888,7 @@ function onKeyCapture(e) {
   //   一覧や設定パネルを見ているときは ここで複製します
   //   （ゲーム画面を見ているときは 上で return しているので、下の document 側が受けます）。
   if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')
-      && !文字を打っている() && 選択id && !running) {
+      && !文字を打っている() && 選択id && !組み込みか(選択id) && !running) {
     e.preventDefault();
     複製する(選択id);
   }
@@ -2584,13 +2907,14 @@ document.addEventListener('keydown', (e) => {
 
   // Ctrl+D … 複製
   if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-    if (選択id && !running) { e.preventDefault(); 複製する(選択id); }
+    if (選択id && !組み込みか(選択id) && !running) { e.preventDefault(); 複製する(選択id); }
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
 
   // Del / Backspace … 消す
-  if ((e.key === 'Delete' || e.key === 'Backspace') && 選択id && !running) {
+  if ((e.key === 'Delete' || e.key === 'Backspace')
+      && 選択id && !組み込みか(選択id) && !running) {
     e.preventDefault(); 削除する(選択id); return;
   }
   // W / E / R … 道具を切りかえ（止まっているときだけ）
