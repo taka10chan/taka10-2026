@@ -926,6 +926,14 @@ export class Game {
     // 出してきて、ものを選ぶだけでも じゃまになります。
     this.プレイ中 = false;
 
+    // マウスポインタを「掴む」（ポインタロック）かどうか。
+    // 掴むと、ブラウザが「マウスポインターは …に制限されています。
+    // Escキーを押すと解除できます」という警告を必ず出します。
+    // うっとうしいので、ふだんは掴まず、
+    // 「左ボタンを押しながら動かすと見回る」ドラッグ方式にします。
+    // 本物のFPSのように動かしたい人だけ マウスを固定(はい) で掴めます。
+    this._ポインタ固定 = false;
+
     // --- きほんの ジオメトリ（つかいまわす。これが かるさの ひみつ） ---
     this._geoはこ = this._しげんにいれる(new THREE.BoxGeometry(1, 1, 1));
     this._geoたま = this._しげんにいれる(new THREE.SphereGeometry(0.5, 18, 12));
@@ -2408,6 +2416,22 @@ export class Game {
       const p = this._画面の位置(e.clientX, e.clientY);
       this._マウスX = p.x;
       this._マウスY = p.y;
+
+      // 掴んでいないときは、左ボタンを押しながら動かすと見回れます。
+      // これならブラウザの警告が出ません。
+      if (this.プレイ中 && this._マウスでみまわす && this._ボタン中[0]) {
+        let dx = 数にする(e.movementX, NaN);
+        let dy = 数にする(e.movementY, NaN);
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+          // movementX が使えないブラウザ用に、前の位置との差で出す
+          dx = (this._まえのマウスX == null) ? 0 : (e.clientX - this._まえのマウスX);
+          dy = (this._まえのマウスY == null) ? 0 : (e.clientY - this._まえのマウスY);
+        }
+        this._みまわしdx += dx;
+        this._みまわしdy += dy;
+      }
+      this._まえのマウスX = e.clientX;
+      this._まえのマウスY = e.clientY;
     });
     win.addEventListener('mousemove', (e) => {
       // ポインタロック中は canvas から 出ても うごきが とどく
@@ -2430,7 +2454,8 @@ export class Game {
       // マウスで 見まわせるようにするのは
       //   ・左クリックのときだけ
       //   ・▶ プレイ中のときだけ（止まっているときは ものを選ぶための クリック）
-      if (b === 0 && this.プレイ中 && this._マウスでみまわす && !this._ポインタロック中) {
+      if (b === 0 && this.プレイ中 && this._マウスでみまわす
+          && this._ポインタ固定 && !this._ポインタロック中) {
         try {
           if (typeof canvas.requestPointerLock === 'function') canvas.requestPointerLock();
         } catch (err) { /* できなくても こまらない */ }
@@ -3354,6 +3379,20 @@ export class Game {
       return null;
     };
 
+    /**
+     * マウスを固定(はい) 本物のFPSのようにポインタを掴む。
+     * ブラウザが「Escキーを押すと解除できます」と出します。
+     * ふだんは いいえ（左ボタンを押しながら動かして見回る）。
+     */
+    const マウスをこてい = (はい) => {
+      G._ポインタ固定 = しんぎ(はい);
+      if (!G._ポインタ固定 && typeof document !== 'undefined' &&
+          document.exitPointerLock && G._ポインタロック中) {
+        try { document.exitPointerLock(); } catch (e) { /* 何もしない */ }
+      }
+      return null;
+    };
+
     /** マウスで見回す(はい) 画面をクリックするとマウスで視点が回る */
     const マウスでみまわす = (はい) => {
       G._マウスでみまわす = しんぎ(はい);
@@ -3789,6 +3828,7 @@ export class Game {
       ['カメラを付ける', 'カメラをつける', カメラをつける],
       ['カメラの中に', 'カメラのなかに', カメラのなかに],
       ['マウスで見回す', 'マウスでみまわす', マウスでみまわす],
+      ['マウスを固定', 'マウスをこてい', マウスをこてい],
       ['カメラの向き', 'カメラのむき', カメラのむき],
       // しらべる
       ['押されてる', 'おされてる', おされてる],
