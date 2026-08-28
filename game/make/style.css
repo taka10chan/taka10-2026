@@ -177,7 +177,22 @@ a.btn { text-decoration: none; }
 .whead {
   padding: 6px 9px 2px; font-size: .68rem; color: #55697b; letter-spacing: .08em;
 }
+/* 見出しの上に すこし すきまを空けて、「置いたもの」と「倉庫」の区切りを見せる */
+.whead + .whead, .witem + .whead, .wfixed + .whead, .wempty + .whead {
+  margin-top: 6px; padding-top: 7px; border-top: 1px dashed var(--line);
+}
 .wempty { padding: 10px 9px; font-size: .76rem; color: var(--muted); line-height: 1.9; }
+
+/* 倉庫にあるもの。画面には出ないので、一覧でも すこし ひかえめに出す */
+.witem.soko { color: #9fb0c0; }
+.witem.soko .ico { opacity: .55; }
+.witem.soko.on { color: var(--accent); }
+
+/* キーの案内（Ctrl+D で複製）。使う人が キーを知らなかったので 見えるところに書く */
+.wkeys {
+  margin-top: 8px; padding: 7px 9px; border-top: 1px solid var(--line);
+  font-size: .7rem; color: #6d8194; line-height: 1.7;
+}
 
 /* ---- ものを増やすボタン ---- */
 #addRow {
@@ -246,6 +261,13 @@ a.btn { text-decoration: none; }
 
 .pbtns { display: flex; gap: 6px; margin-top: 12px; }
 .pbtns .mini { flex: 1 1 auto; min-height: 34px; }
+
+/* ---- 倉庫へしまう／ワールドへ出す（SPEC2 H-1）---- */
+.mini.soko { width: 100%; min-height: 34px; text-align: center; }
+.mini.soko:hover { border-color: var(--accent); color: var(--accent); }
+.pnote { margin-top: 5px; font-size: .7rem; color: #6d8194; line-height: 1.7; }
+/* ---- キーの案内（Ctrl+D で複製）---- */
+.pkeys { margin-top: 7px; font-size: .7rem; color: #6d8194; text-align: center; }
 
 /* -----------------------------------------------------------------------
    中央：ゲーム画面 と ログ
@@ -477,4 +499,93 @@ a.btn { text-decoration: none; }
 @media (pointer: coarse) {
   .btn, .pop button.item, .cat-h { min-height: 48px; }
   .witem, .add { min-height: 42px; }
+}
+
+/* -----------------------------------------------------------------------
+   予測変換（コード補完）   ★SPEC2 G-5★
+
+   カーソルの すぐ下に 小さな一覧を出します。body の直下に置いて
+   position:fixed にしているので、コード欄の外にも はみ出せます。
+   ----------------------------------------------------------------------- */
+
+/* カーソルの横の位置を測るための、見えない ものさし。
+   画面に出ないよう 画面の外に置きます（display:none だと 幅が測れない） */
+.yosoku-measure {
+  position: absolute; left: -9999px; top: -9999px;
+  white-space: pre; visibility: hidden; pointer-events: none;
+  padding: 0; margin: 0; border: 0;
+}
+
+.yosoku {
+  position: fixed; z-index: 45; left: 0; top: 0;
+  min-width: 260px; max-width: min(460px, 92vw);
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.55);
+  overflow: hidden;
+  font-family: var(--ui); font-size: .9rem;
+  user-select: none; -webkit-user-select: none;
+}
+.yosoku[hidden] { display: none; }
+/* カーソルの 上に出すときは、影の向きを 逆にする */
+.yosoku.above { box-shadow: 0 -10px 26px rgba(0,0,0,.55); }
+/* 「もしかして」のときは ふちを 目立たせる */
+.yosoku.maybe { border-color: var(--accent); }
+
+.yosoku-list { max-height: 306px; overflow-y: auto; }
+
+.yosoku-row {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px;                 /* タブレットの指でも 押せる大きさ */
+  padding: 4px 10px; cursor: pointer;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid rgba(43,57,69,.5);
+}
+.yosoku-row:last-child { border-bottom: 0; }
+.yosoku-row.on { background: var(--panel2); border-left-color: var(--accent); }
+.yosoku-row.on .yosoku-word { color: var(--accent); }
+
+/* 種類の札（ことば／文法／もの／変数）。色で 見わけられるように */
+.yosoku-kind {
+  flex: none; min-width: 3.6em; text-align: center;
+  padding: 2px 5px; border-radius: 5px;
+  font-size: .68rem; line-height: 1.5; letter-spacing: .04em;
+  background: #223040; color: var(--muted);
+}
+.yosoku-row.k-文法    .yosoku-kind { background: #4a3a10; color: #ffd66e; }
+.yosoku-row.k-ことば  .yosoku-kind { background: #123240; color: #7fd8f0; }
+.yosoku-row.k-ワールド .yosoku-kind { background: #14381f; color: #7ee0a0; }
+.yosoku-row.k-変数    .yosoku-kind { background: #33203f; color: #d7a8f5; }
+
+.yosoku-word {
+  flex: none; font-family: var(--mono); font-weight: 700;
+  font-size: 1rem; color: var(--ink);
+  max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.yosoku-sig {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--mono); font-size: .8rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* 選んでいる行の 説明（1行） */
+.yosoku-desc {
+  padding: 7px 12px; background: #101922; color: #b9c7d4;
+  font-size: .82rem; line-height: 1.5;
+  border-top: 1px solid var(--line);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.yosoku-desc[hidden] { display: none; }
+
+/* いちばん下の 使いかたの案内 */
+.yosoku-help {
+  padding: 5px 12px; background: #0b1218; color: var(--muted);
+  font-size: .74rem; border-top: 1px solid var(--line);
+}
+
+@media (max-width: 560px) {
+  .yosoku { min-width: 220px; max-width: 94vw; font-size: .86rem; }
+  .yosoku-list { max-height: 220px; }
+  .yosoku-sig { display: none; }     /* せまいときは ことばだけ見せる */
 }

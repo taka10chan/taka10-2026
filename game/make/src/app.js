@@ -19,6 +19,7 @@
 import { parse, Runner, KotodamaError } from './lang.js';
 import { Game } from './runtime.js';
 import { CATEGORIES, GRAMMAR, SAMPLES } from './words.js';
+import { 予測 } from './suggest.js';
 
 /* =======================================================================
    0. 画面の部品をつかまえる
@@ -546,6 +547,31 @@ function 数(v, もと) {
   return Number.isFinite(n) ? n : もと;
 }
 
+/* -----------------------------------------------------------------------
+   ものの「場所」（SPEC2 H-1）
+
+   ワールドのものは2とおりの置きかたがあります。
+     'ワールド' … 今までどおり画面に出る（既定）
+     '倉庫'     … 画面に出ない。クローンのもとになる見本の置き場
+
+   ★古い作品には `場所` が入っていません。そのときは 'ワールド' 扱いにします。
+     ここを守らないと、前に作った作品のものが消えてしまいます。
+   ----------------------------------------------------------------------- */
+const 場所ワールド = 'ワールド';
+const 場所倉庫     = '倉庫';
+
+/** 保存されている `場所` を、決まった2つのどちらかにそろえる */
+function 場所にする(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s === 場所倉庫 || s === 'そうこ' || s === 'ソウコ' || s === 'storage') return 場所倉庫;
+  return 場所ワールド;      // 空でも、知らない字でも、ワールド扱い
+}
+
+/** そのものが倉庫に入っているか */
+function 倉庫にある(o) {
+  return !!o && o.場所 === 場所倉庫;
+}
+
 /** 色を #rrggbb にそろえる */
 function 色にする(v, もと) {
   const s = String(v == null ? '' : v).trim();
@@ -571,6 +597,8 @@ function ものをならす(raw, い) {
     id:   String(o.id || newId('o')),
     名前: String(o.名前 || o.なまえ || o.name || (形 + (い2 + 1))),
     形:   形,
+    // 場所（SPEC2 H-1）。書いてなければ 'ワールド'（古いデータもこわれない）
+    場所: 場所にする(o.場所 != null ? o.場所 : o.ばしょ),
     モデル: (o.モデル == null && o.model == null) ? null : String(o.モデル != null ? o.モデル : o.model),
     x: 数(o.x, 0), y: 数(o.y, 見本.高さ / 2), z: 数(o.z, 0),
     横:   Math.max(0.1, Math.abs(数(o.横,   数(o.よこ,   見本.横)))),
@@ -739,6 +767,7 @@ function openWork(id) {
   renderWorldList();
   renderProps();
   renderTabs();
+  予測変換.更新();     // 作品が変わったので 一覧を作り直す
   世界を作り直す();
   logSys('「' + w.name + '」を開きました');
 }
@@ -872,15 +901,76 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) flush
    ======================================================================= */
 let 選択id = null;        // いま選んでいるものの id（null なら選んでいない）
 
+/** 一覧の見出し（「置いたもの」「倉庫」など）を1行足す */
+function 一覧の見出し(文, 説明) {
+  const h = document.createElement('div');
+  h.className = 'whead';
+  h.textContent = 文;
+  if (説明) h.title = 説明;
+  worldList.appendChild(h);
+  return h;
+}
+
+/** 中身が無いときの案内を1つ足す */
+function 一覧の案内(文) {
+  const e = document.createElement('div');
+  e.className = 'wempty';
+  e.textContent = 文;
+  worldList.appendChild(e);
+}
+
+/** ものの行を1つ作って一覧に足す */
+function 一覧の行(o) {
+  const 倉庫か = 倉庫にある(o);
+
+  const b = document.createElement('button');
+  b.className = 'witem' + (o.id === 選択id ? ' on' : '') + (倉庫か ? ' soko' : '');
+  b.type = 'button';
+  b.setAttribute('role', 'option');
+  b.setAttribute('aria-selected', o.id === 選択id ? 'true' : 'false');
+  b.title = o.名前 + '（' + o.形 + '）'
+          + (倉庫か ? '／倉庫にあります。画面には出ませんが、クローン() のもとになります' : '');
+
+  const ic = document.createElement('span');
+  ic.className = 'ico';
+  ic.textContent = 形のアイコン[o.形] || '🟩';
+
+  const nm = document.createElement('span');
+  nm.className = 'nm';
+  nm.textContent = o.名前;
+
+  b.appendChild(ic); b.appendChild(nm);
+
+  // コードが入っているものには 📄 を出す
+  const ある = (o.id === 表示中のキー) ? ta.value.trim() : String(o.コード || '').trim();
+  if (ある) {
+    const doc = document.createElement('span');
+    doc.className = 'doc';
+    doc.textContent = '📄';
+    doc.title = 'スクリプトが入っています';
+    b.appendChild(doc);
+  }
+
+  b.addEventListener('click', () => 選ぶ(o.id));
+  worldList.appendChild(b);
+}
+
+/**
+ * ワールド一覧を作り直す（SPEC2 H-1）。
+ *
+ *   最初からあるもの … 地面・プレイヤー（設定は変えられない）
+ *   置いたもの       … 画面に出るもの
+ *   倉庫             … 画面に出ない見本。クローンのもと
+ *
+ * 倉庫は、中身が0このときも見出しだけは出します。
+ * 「そういう場所がある」と分からないと、だれも使えないからです。
+ */
 function renderWorldList() {
   const w = いまの作品();
   worldList.textContent = '';
 
   // --- 最初からあるもの（コードから使えるが、設定は変えられない） ---
-  const h = document.createElement('div');
-  h.className = 'whead';
-  h.textContent = '最初からあるもの';
-  worldList.appendChild(h);
+  一覧の見出し('最初からあるもの');
   [['🟫', '地面'], ['🧍', 'プレイヤー']].forEach((つい) => {
     const d = document.createElement('div');
     d.className = 'wfixed';
@@ -891,51 +981,33 @@ function renderWorldList() {
     worldList.appendChild(d);
   });
 
-  // --- 置いたもの ---
-  const h2 = document.createElement('div');
-  h2.className = 'whead';
-  h2.textContent = '置いたもの（' + w.objects.length + 'こ）';
-  worldList.appendChild(h2);
+  // --- 置いたもの と 倉庫 に分ける ---
+  const 置いたもの = w.objects.filter((o) => !倉庫にある(o));
+  const 倉庫のもの = w.objects.filter(倉庫にある);
 
-  if (!w.objects.length) {
-    const e = document.createElement('div');
-    e.className = 'wempty';
-    e.textContent = 'まだ何もありません。下の ＋箱 を押してみよう。';
-    worldList.appendChild(e);
-    return;
+  一覧の見出し('置いたもの（' + 置いたもの.length + 'こ）', '画面に出るものです');
+  if (!置いたもの.length) {
+    一覧の案内('まだ何もありません。下の ＋箱 を押してみよう。');
+  } else {
+    置いたもの.forEach(一覧の行);
   }
 
-  w.objects.forEach((o) => {
-    const b = document.createElement('button');
-    b.className = 'witem' + (o.id === 選択id ? ' on' : '');
-    b.type = 'button';
-    b.setAttribute('role', 'option');
-    b.setAttribute('aria-selected', o.id === 選択id ? 'true' : 'false');
-    b.title = o.名前 + '（' + o.形 + '）';
+  一覧の見出し(
+    倉庫のもの.length ? '📦 倉庫（' + 倉庫のもの.length + 'こ）' : '📦 倉庫（からっぽ）',
+    '画面に出ない見本の置き場です。クローン() のもとになります'
+  );
+  if (!倉庫のもの.length) {
+    一覧の案内('画面に出ない見本の置き場です。ものを選んで「倉庫へしまう」を押すと ここに入ります。'
+             + 'コードで クローン(名前) と書くと いくつでも出せます。');
+  } else {
+    倉庫のもの.forEach(一覧の行);
+  }
 
-    const ic = document.createElement('span');
-    ic.className = 'ico';
-    ic.textContent = 形のアイコン[o.形] || '🟩';
-
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = o.名前;
-
-    b.appendChild(ic); b.appendChild(nm);
-
-    // コードが入っているものには 📄 を出す
-    const ある = (o.id === 表示中のキー) ? ta.value.trim() : String(o.コード || '').trim();
-    if (ある) {
-      const doc = document.createElement('span');
-      doc.className = 'doc';
-      doc.textContent = '📄';
-      doc.title = 'スクリプトが入っています';
-      b.appendChild(doc);
-    }
-
-    b.addEventListener('click', () => 選ぶ(o.id));
-    worldList.appendChild(b);
-  });
+  // --- キーの案内（使う人は Ctrl+D を知りませんでした。見えるように書く） ---
+  const k = document.createElement('div');
+  k.className = 'wkeys';
+  k.textContent = 'ものを選んで Ctrl+D で複製 ／ Del で削除';
+  worldList.appendChild(k);
 }
 
 /**
@@ -979,7 +1051,7 @@ function renderProps() {
   }
   propBox.hidden = false;
   propEmpty.hidden = true;
-  propTarget.textContent = o.形;
+  propTarget.textContent = o.形 + (倉庫にある(o) ? '（倉庫）' : '');
 
   pName.value = o.名前;
   pName.classList.remove('bad');
@@ -990,6 +1062,8 @@ function renderProps() {
     // 入力中の欄はじゃましない
     if (document.activeElement !== el) el.value = String(まるめる(o[数字欄[id]]));
   });
+
+  倉庫ボタンを直す(o);
 
   pColor.value = o.色;
   pColorText.textContent = o.色;
@@ -1152,6 +1226,94 @@ pVis .addEventListener('change', () => 設定を変える({ 見える: pVis.chec
 pModel.addEventListener('change', () => 設定を変える({ モデル: pModel.value || null }));
 
 /* =======================================================================
+   6b. 倉庫へしまう／ワールドへ出す（SPEC2 H-1）と、キーの案内
+
+   index.html はさわらない約束なので、ここでボタンを作って設定パネルに
+   差しこみます。「複製」「削除」のボタンのすぐ上に入れます。
+   ======================================================================= */
+
+/** 「倉庫へしまう」／「ワールドへ出す」のボタン */
+const btnSoko = document.createElement('button');
+btnSoko.type = 'button';
+btnSoko.className = 'mini soko';
+btnSoko.textContent = '倉庫へしまう';
+
+/** ボタンの下に出す ひとこと説明 */
+const sokoNote = document.createElement('div');
+sokoNote.className = 'pnote';
+
+/** キーの案内。使う人は Ctrl+D を知りませんでした（SPEC2 H-5） */
+const keyNote = document.createElement('div');
+keyNote.className = 'pkeys';
+keyNote.textContent = 'Ctrl+D で複製 ／ Del で削除';
+
+(function 設定パネルに差しこむ() {
+  const 場所欄 = document.createElement('div');
+  場所欄.className = 'pgroup';
+  const 見出し = document.createElement('div');
+  見出し.className = 'ptitle';
+  見出し.textContent = '場所';
+  場所欄.appendChild(見出し);
+  場所欄.appendChild(btnSoko);
+  場所欄.appendChild(sokoNote);
+
+  const ボタン行 = btnDup.parentNode;           // index.html の .pbtns
+  if (ボタン行 && ボタン行.parentNode) {
+    ボタン行.parentNode.insertBefore(場所欄, ボタン行);
+    // 「複製」ボタンのすぐ下に、キーの案内を出す
+    if (ボタン行.nextSibling) ボタン行.parentNode.insertBefore(keyNote, ボタン行.nextSibling);
+    else ボタン行.parentNode.appendChild(keyNote);
+  } else {
+    propBox.appendChild(場所欄);
+    propBox.appendChild(keyNote);
+  }
+  // ボタンの文字にもキーを添えておく（見えるところに1回は書く）
+  btnDup.textContent = '複製 Ctrl+D';
+  btnDel.textContent = '削除 Del';
+}());
+
+/** 選んでいるものに合わせて、ボタンの文字を変える */
+function 倉庫ボタンを直す(o) {
+  if (倉庫にある(o)) {
+    btnSoko.textContent = '⬅ ワールドへ出す';
+    btnSoko.title = 'このものを倉庫から出して、画面に出します';
+    sokoNote.textContent = 'いまは倉庫にあります。画面には出ませんが、名前でコードから使えます。';
+  } else {
+    btnSoko.textContent = '📦 倉庫へしまう';
+    btnSoko.title = 'このものを倉庫にしまいます（画面から消えて、クローンのもとになります）';
+    sokoNote.textContent = 'いまはワールドにあります。倉庫にしまうと画面から消えて、クローン() のもとになります。';
+  }
+}
+
+/**
+ * ものを 倉庫 ⇄ ワールド に移す。
+ * 一覧の並びも 3D の見た目も その場で作り直します。
+ */
+function 場所を移す(id) {
+  const o = いまの作品().objects.find((x) => x.id === (id || 選択id));
+  if (!o) return;
+  if (running) {
+    logSys('▶ プレイ中は倉庫に移せません。■ ストップ を押してから もう一度どうぞ。');
+    return;
+  }
+  const 倉庫へ = !倉庫にある(o);
+  o.場所 = 倉庫へ ? 場所倉庫 : 場所ワールド;
+  flushSave();
+  renderWorldList();
+  renderProps();
+  世界を作り直す();                 // ★3D からも消える（倉庫は見た目を作らない）
+  if (ed && 選択id) { try { ed.選ぶ(選択id); } catch (_) { /* 平気 */ } }
+  if (倉庫へ) {
+    logSys('「' + o.名前 + '」を倉庫にしまいました。画面からは消えますが、'
+         + 'コードで クローン(' + o.名前 + ') と書くと いくつでも出せます。');
+  } else {
+    logSys('「' + o.名前 + '」をワールドに出しました。');
+  }
+}
+
+btnSoko.addEventListener('click', () => 場所を移す(選択id));
+
+/* =======================================================================
    7. ものを置く・複製する・消す
    ======================================================================= */
 
@@ -1196,6 +1358,7 @@ function ものを足す(形) {
   const o = ものをならす({
     形: 形,
     名前: 空いている名前(形),
+    場所: 場所ワールド,        // ＋ボタンで置いたものは、いつも「置いたもの」に入る
     モデル: モデル名,
     x: 場所.x, y: 場所.y, z: 場所.z,
     横: 見本.横, 高さ: 見本.高さ, 奥行き: 見本.奥行き,
@@ -1313,6 +1476,7 @@ function タブを開く(キー) {
   applyErrorMarks();
   renderTabs();
   markDirty();
+  予測変換.更新();     // 別のコードに変わったので 一覧を作り直す
 }
 
 /* =======================================================================
@@ -1332,6 +1496,8 @@ function ensureGame() {
   game = new Game(canvas);
   game.onLog  = (t) => logLine(String(t));
   game.onStop = () => { if (running) stopRun('ゲームが止まりました'); };
+  // クローンができたら知らせてもらう（SPEC2 H-3）。中で running を見ています。
+  game.onClone = クローンにコードを入れる;
   game.attachInput();
   return game;
 }
@@ -1423,9 +1589,15 @@ function ワールドを作る(objects) {
       if (色を塗る) 色を塗る(もの, o.色);
       if (o.向き && 向ける) 向ける(もの, o.向き);
       if (o.傾き && 傾ける) 傾ける(もの, o.傾き);
-      if (o.壁 && 壁にする) 壁にする(もの);
-      if (o.重力 && 重力にする) 重力にする(もの, true);
-      if (!o.見える && 隠す) 隠す(もの);
+      // 倉庫のものは 見えない・当たらない・落ちない（SPEC2 H-1）。
+      // 名前で呼べる「もの」としてだけ 残します。
+      if (倉庫にある(o)) {
+        if (隠す) 隠す(もの);
+      } else {
+        if (o.壁 && 壁にする) 壁にする(もの);
+        if (o.重力 && 重力にする) 重力にする(もの, true);
+        if (!o.見える && 隠す) 隠す(もの);
+      }
     } catch (_) { /* 見た目が付かなくても、ものは残す */ }
 
     もの.__id = o.id;
@@ -1482,6 +1654,65 @@ let rafId = 0;
 let lastT = 0;
 let 作り直し予約 = false; // ストップの直後に、次のフレームで作り直す
 
+/* -----------------------------------------------------------------------
+   クローンにコードを入れるための 覚え書き（SPEC2 H-2）
+
+   キー   … さくひんの objects の id（クローンのもとになったもの）
+   中身   … parse() の結果。null は「コードが無い」か「まちがいがあって読めない」
+
+   ★ parse() は 重いので、同じ id では 1回しかしません。
+     弾を毎フレーム撃つようなコードだと、ここを毎回やると すぐ重くなります。
+   ★ ▶ を押すたびに 中身を捨てます（コードを直したのに 古いままだと 困るので）。
+   ----------------------------------------------------------------------- */
+const クローンのコード表 = new Map();
+
+/**
+ * クローンができた ちょうどそのときに runtime.js から呼ばれます（SPEC2 H-3）。
+ *
+ *   game.onClone = (新しいもの, もとのもの) => { … }
+ *
+ * ここで、もとのものに入っている コードを クローンにも つなぎます。
+ * その中の `自分`（`じぶん`）は クローン自身を指します。
+ * ★これが無いと「クローンでもスクリプトが動く」が成り立ちません。
+ */
+function クローンにコードを入れる(新しいもの, もとのもの) {
+  if (!running || !runner || typeof runner.attach !== 'function') return;
+  if (!新しいもの) return;
+
+  // runtime.js が、さくひんの objects の id を __もとid に入れてくれています。
+  // クローンのクローンでも、いちばん元の id を指したままになります。
+  const もとid = (新しいもの.__もとid)
+              || (もとのもの && (もとのもの.__もとid || もとのもの.__世界id))
+              || null;
+  if (!もとid) return;
+
+  const 元 = いまの作品().objects.find((x) => x.id === もとid) || null;
+
+  // すでに読んであれば それを使う（★毎回 parse しない★）
+  let program = クローンのコード表.get(もとid);
+  if (program === undefined) {
+    const src = 元 ? String(元.コード || '') : '';
+    if (!src.trim()) { クローンのコード表.set(もとid, null); return; }   // コードなし
+    try {
+      program = parse(src);
+    } catch (err) {
+      program = null;
+      // まちがいの知らせは 1回だけ（下で null を覚えるので 2回目は来ません）
+      showError(err, (元 && 元.名前) || 'クローン');
+      logSys('（コードにまちがいがあるので、クローンでは動かしませんでした）');
+    }
+    クローンのコード表.set(もとid, program);
+  }
+  if (!program) return;
+
+  const 名 = (元 && 元.名前) ? 元.名前 : String(新しいもの.__名前 || 'クローン');
+  try {
+    runner.attach(program, { 自分: 新しいもの, じぶん: 新しいもの }, 名);
+  } catch (err) {
+    showError(err, 名);
+  }
+}
+
 function setRunUI(on) {
   running = on;
   btnRun.classList.toggle('running', on);
@@ -1493,10 +1724,12 @@ function setRunUI(on) {
 }
 
 function run() {
+  予測変換.とじる();          // 出しっぱなしの候補は しまっておく
   if (running) { stopRun('ストップしました'); return; }
 
   flushSave();
   clearErrorMarks();
+  クローンのコード表.clear();   // ★覚えていた parse の結果は ここで捨てる
 
   const w = いまの作品();
   const g = ensureGame();
@@ -1532,9 +1765,16 @@ function run() {
     const src = String(o.コード || '');
     if (!src.trim()) continue;
     try {
-      スクリプトたち.push({ 名前: o.名前, もの: 名前表[o.名前] || null, program: parse(src) });
+      const program = parse(src);
+      // クローン用に覚えておく（クローンのたびに parse しなくてすむ）
+      クローンのコード表.set(o.id, program);
+      // ★倉庫のものは 見本なので、そのものでは動かしません。
+      //   クローンにだけ このコードが つきます（ロブロックスの倉庫と同じ）。
+      if (倉庫にある(o)) continue;
+      スクリプトたち.push({ 名前: o.名前, もの: 名前表[o.名前] || null, program: program });
     } catch (err) {
       showError(err, o.名前);
+      クローンのコード表.set(o.id, null);   // まちがいのあるコードは クローンにも つけない
       だめだった = true;
     }
   }
@@ -1553,6 +1793,10 @@ function run() {
     showError(err, 'ワールド');
     return;
   }
+
+  // ★クローンができたら、もとのもののコードを クローンにも つなぐ（SPEC2 H-2）
+  //   start() の前につないでおきます（「最初に」の中で クローンしても間に合うように）
+  try { g.onClone = クローンにコードを入れる; } catch (_) { /* 古い runtime なら何もしない */ }
 
   stageHint.hidden = true;
   setRunUI(true);
@@ -1959,6 +2203,12 @@ function loadSample(s) {
   if (コード持ち.length) {
     logSys('「' + コード持ち[0].名前 + '」にもコードが入っています。左の一覧で選ぶと見られます。');
   }
+  // 倉庫を使うサンプルは、そこに気づいてもらわないと分かりません
+  const 倉庫のもの = (w.objects || []).filter(倉庫にある);
+  if (倉庫のもの.length) {
+    logSys('「' + 倉庫のもの[0].名前 + '」は【倉庫】に入っています。画面には出ませんが、'
+         + 'コードで クローン(' + 倉庫のもの[0].名前 + ') と書くと出てきます。');
+  }
 }
 
 /* =======================================================================
@@ -1985,7 +2235,265 @@ document.addEventListener('pointerdown', (e) => {
 });
 
 /* =======================================================================
-   15. キーを だれに わたすか
+   15. 予測変換（コード補完）   ★SPEC2 G章★
+
+   ことばが 87語 ＋ 文法 25個。覚えられるわけがないので、打ちながら出します。
+   一覧を出したり キーを見たりするのは src/suggest.js。
+   ここでやるのは「候補を集めること」だけです。
+
+   集めるもの:
+     ・words.js の CATEGORIES（種類「ことば」）と GRAMMAR（種類「文法」）
+     ・ワールドに置いたものの名前（種類「ワールド」）
+     ・いま書いているコードの中で、使う人が作った変数と手順（種類「変数」）
+     ・色の名前とキーの名前 … " の中を打っているときだけ
+
+   ★読みの集めかた（ここが肝心。SPEC2 G-4）★
+     「うご」と打って「動かす」が出ないと 意味がありません。
+     words.js の tags は
+         動かす ウゴカス うごかす move ugokasu 移動 ずらす 進む 相対
+     のように、【前のほうが 読み】【後ろのほうが 似た意味のことば】です。
+     そこで「漢字の入った tag が出てきたら そこで打ち切る」ことにしました。
+     こうすると 読み（ウゴカス・うごかす・move・ugokasu）だけが きれいに取れ、
+     「移動」「進む」のような よその意味のことばは 入りません。
+     （入れてしまうと、「もし」の tag にある「おわり」のせいで
+       「お」と打っただけで「もし」が出る、という へんなことになります）
+   ======================================================================= */
+
+/** 漢字が入っているか（読みの打ち切りに使う） */
+const 漢字が入っている = /[一-龯々〆]/;
+
+/**
+ * ことば1つぶんの「読み」を集める。
+ * @param 語   ことばの名前（漢字が正式）
+ * @param tags words.js の tags（空白区切り）
+ */
+function 読みを集める(語, tags) {
+  const 出 = [];
+  const 足す = (s) => {
+    const t = String(s == null ? '' : s).trim();
+    if (t && 出.indexOf(t) < 0) 出.push(t);
+  };
+  足す(語);                                  // 漢字のつづりは かならず入れる
+  const 並び = String(tags == null ? '' : tags).split(/[\s　]+/).filter(Boolean);
+  for (const t of 並び) {
+    if (t === 語) continue;                  // tags の先頭は たいてい 語そのもの
+    if (漢字が入っている.test(t)) break;      // ここから先は 読みではないので おしまい
+    足す(t);
+    if (出.length >= 8) break;               // 多すぎても 使わない
+  }
+  return 出;
+}
+
+/**
+ * 文法は「かたまりごと」入れます（SPEC2 G-6）。
+ *   もし  なら
+ *
+ *   終わり
+ * カーソルは 書き足したい所（もし なら 条件の所）に置きます。
+ * 数字は「何文字めの うしろに カーソルを置くか」です。
+ */
+const 文法のかたまり = {
+  'もし':             { 挿入: 'もし  なら\n  \n終わり',           カーソル: 3 },
+  'そうでなくもし':   { 挿入: 'そうでなくもし  なら\n  ',          カーソル: 8 },
+  'そうでなければ':   { 挿入: 'そうでなければ\n  ',                カーソル: 10 },
+  '繰り返し':         { 挿入: '繰り返し  回\n  \n終わり',          カーソル: 5 },
+  'のあいだ 繰り返し':{ 挿入: 'のあいだ 繰り返し\n  \n終わり',      カーソル: 12 },
+  'ずっと':           { 挿入: 'ずっと\n  \n終わり',                カーソル: 6 },
+  'ひとつずつ':       { 挿入: 'ひとつずつ 中身 = リスト\n  \n終わり', カーソル: 6 },
+  '毎回':             { 挿入: '毎回\n  \n終わり',                  カーソル: 5 },
+  '最初に':           { 挿入: '最初に\n  \n終わり',                カーソル: 6 },
+  '押したとき':       { 挿入: '押したとき ( "" )\n  \n終わり',      カーソル: 9 },
+  '触れたとき':       { 挿入: '触れたとき (相手)\n  \n終わり',      カーソル: 13 },
+  '手順':             { 挿入: '手順 ()\n  \n終わり',               カーソル: 3 },
+  '返す':             { 挿入: '返す ',                            カーソル: 3 },
+};
+
+/**
+ * 単語帳には あるけれど、候補にしないもの。
+ * 「ことばの書きかた」「ものを複製する」は ことばではなく 読みもの（説明の項目）で、
+ * そのまま入れても コードになりません。かわりに 下の 足りない文法 で
+ * 本当のことば（クローン）を 出します。
+ */
+const 候補にしないことば = new Set(['ことばの書きかた', 'ものを複製する', '=', '#', '[ ]', '[]']);
+
+/**
+ * words.js の 1項目を 候補の形にする。
+ * 候補の形は SPEC2 G-7 のとおり { 語, 読み, 挿入, カーソル, 説明, 種類 }。
+ */
+function 候補にする(w, 種類) {
+  if (!w || typeof w !== 'object') return null;
+  const 語 = String(w.call || '').trim();
+  if (!語 || 候補にしないことば.has(語)) return null;
+  // = や # や [ ] は、打ちかけの語として つかまえられないので 出しません
+  // （「のあいだ 繰り返し」のように 空白が入るものは 読みで探せるので 残します）
+  if (!名前の最初.test(語)) return null;
+
+  let 挿入 = (w.insert === undefined || w.insert === null) ? 語 : String(w.insert);
+  let カーソル;
+
+  const かたまり = (種類 === '文法') ? 文法のかたまり[語] : null;
+  if (かたまり) {
+    挿入 = かたまり.挿入;
+    カーソル = かたまり.カーソル;
+  } else {
+    // 「箱(0, 5, 0, 4, 4, 4)」なら 最初の数字の所に カーソルを置く
+    const か = 挿入.indexOf('(');
+    if (か >= 0) カーソル = か + 1;
+  }
+
+  return {
+    語: 語,
+    読み: 読みを集める(語, w.tags),
+    挿入: 挿入,
+    カーソル: カーソル,
+    説明: String(w.desc || w.sig || ''),
+    種類: 種類,
+  };
+}
+
+/** words.js の並び（分類つき・平たい、どちらでも）から 候補を集める */
+function 候補を集める(元, 種類, 入れもの) {
+  [].concat(元 || []).forEach((かたまり) => {
+    if (!かたまり) return;
+    const 中身 = かたまり.words || かたまり.items || かたまり.entries;
+    if (Array.isArray(中身)) {
+      中身.forEach((w) => { const c = 候補にする(w, 種類); if (c) 入れもの.push(c); });
+      return;
+    }
+    const c = 候補にする(かたまり, 種類);
+    if (c) 入れもの.push(c);
+  });
+  return 入れもの;
+}
+
+/**
+ * 単語帳に 項目が無いけれど、書くときに いちばん要ることば。
+ * （終わり は「もし」の説明の中にしか 出てこないので、ここで足します）
+ */
+const 足りない文法 = [
+  { 語: '終わり', 読み: ['終わり', 'おわり', 'オワリ', 'owari', 'end'], 挿入: '終わり',
+    説明: 'もし・繰り返し・毎回・手順 などの かたまりを ここで とじます。', 種類: '文法' },
+  { 語: 'なら', 読み: ['なら', 'ナラ', 'nara'], 挿入: 'なら',
+    説明: '「もし 条件 なら」の形で 使います。', 種類: '文法' },
+  { 語: '回', 読み: ['回', 'かい', 'カイ', 'kai'], 挿入: '回',
+    説明: '「繰り返し 5 回」の形で 使います。', 種類: '文法' },
+  { 語: 'かいめ', 読み: ['かいめ', 'カイメ', '回目', 'kaime'], 挿入: 'かいめ',
+    説明: '繰り返しの中で 1, 2, 3 … と 増えていく数です。', 種類: '文法' },
+  // クローン は 単語帳では「ものを複製する」の中で 説明されていて、
+  // ことばとしての 項目が ありません。ここで 足しておきます。
+  { 語: 'クローン', 読み: ['クローン', 'くろーん', 'clone'], 挿入: 'クローン(もの)', カーソル: 5,
+    説明: 'そっくり同じものを もう1つ作ります。弾や敵を 遊んでいる最中に 増やすときに 使います。',
+    種類: 'ことば' },
+];
+
+/** ずっと変わらない候補（文法 → ことば の順。よく使うものが先） */
+const いつもの候補 = 候補を集める(
+  CATEGORIES, 'ことば',
+  候補を集める(GRAMMAR, '文法', 足りない文法.slice())
+);
+
+/**
+ * 色とキーの名前（SPEC2 A-5）。" の中を打っているときだけ 出します。
+ * カタカナは「そろえた形」で当たるので、ひらがなを 1つ持たせれば足ります。
+ */
+const 色キーの候補 = [
+  ['赤', 'あか'], ['青', 'あお'], ['緑', 'みどり'], ['黄', 'きいろ'],
+  ['白', 'しろ'], ['黒', 'くろ'], ['水色', 'みずいろ'], ['ピンク', 'ぴんく'],
+  ['オレンジ', 'おれんじ'], ['紫', 'むらさき'], ['灰色', 'はいいろ'],
+  ['茶色', 'ちゃいろ'], ['紺', 'こん'],
+].map(([語, よみ]) => ({
+  語: 語, 読み: [語, よみ], 挿入: 語, 説明: '色の名前です。', 種類: 'ことば',
+})).concat([
+  ['右', 'みぎ'], ['左', 'ひだり'], ['上', 'うえ'], ['下', 'した'],
+  ['スペース', 'すぺーす'], ['エンター', 'えんたー'], ['シフト', 'しふと'],
+].map(([語, よみ]) => ({
+  語: 語, 読み: [語, よみ], 挿入: 語, 説明: 'キーの名前です。', 種類: 'ことば',
+})));
+
+/** ワールドに置いたものの名前を 候補にする */
+function ワールドの候補() {
+  const w = いまの作品();
+  const もの = (w && Array.isArray(w.objects)) ? w.objects : [];
+  return もの.map((o) => ({
+    語: String(o.名前 || ''),
+    読み: [String(o.名前 || '')],
+    挿入: String(o.名前 || ''),
+    説明: 倉庫にある(o)
+      ? '倉庫にある ' + (o.形 || 'もの') + ' です。クローン(' + o.名前 + ') で 増やせます。'
+      : 'ワールドに置いた ' + (o.形 || 'もの') + ' です。そのまま 変数として 使えます。',
+    種類: 'ワールド',
+  })).filter((c) => c.語);
+}
+
+// --- 使う人が作った変数と手順を、いま書いているコードから ひろう -------
+//     きっちり解析はしません。正規表現で 拾える ぶんだけで十分です。
+const 名前の字 = '[A-Za-z0-9_ぁ-んァ-ヶーｦ-ﾟ一-龯々〆ヵヶ]+';
+const 代入の形     = new RegExp('(^|\\n)[ \\t　]*(' + 名前の字 + ')[ \\t　]*=(?!=)', 'g');
+const 手順の形     = new RegExp('(?:手順|てじゅん|テジュン)[ \\t　]+(' + 名前の字 + ')[ \\t　]*\\(([^)\\n]*)\\)', 'g');
+const ひとつずつの形 = new RegExp('(?:ひとつずつ|ヒトツズツ)[ \\t　]+(' + 名前の字 + ')[ \\t　]*=', 'g');
+const 受けとる形   = new RegExp('(?:触れたとき|さわったとき|サワッタトキ)[ \\t　]*\\([ \\t　]*(' + 名前の字 + ')', 'g');
+
+/** いま書いているコードの中の 変数と手順を 候補にする */
+function じぶんの候補() {
+  const コード = ta.value;
+  const 出 = [];
+  const すでに = new Set();
+  const 足す = (名, 説明) => {
+    const s = String(名 || '').trim();
+    if (!s || すでに.has(s)) return;
+    if (/^[0-9]/.test(s)) return;               // 数字から始まる名前は ない
+    if (組み込みのことば.has(s)) return;         // もし・箱 などは 変数ではない
+    すでに.add(s);
+    出.push({ 語: s, 読み: [s], 挿入: s, 説明: 説明, 種類: '変数' });
+  };
+
+  let m;
+  代入の形.lastIndex = 0;
+  while ((m = 代入の形.exec(コード))) 足す(m[2], '自分で作った変数です。');
+  ひとつずつの形.lastIndex = 0;
+  while ((m = ひとつずつの形.exec(コード))) 足す(m[1], '「ひとつずつ」で 取り出す名前です。');
+  受けとる形.lastIndex = 0;
+  while ((m = 受けとる形.exec(コード))) 足す(m[1], '「触れたとき」で 当たった相手です。');
+  手順の形.lastIndex = 0;
+  while ((m = 手順の形.exec(コード))) {
+    足す(m[1], '自分で作った手順です。');
+    String(m[2] || '').split(',').forEach((p) => 足す(p, '手順に わたすものの名前です。'));
+  }
+  return 出;
+}
+
+/** カーソルが 文字列（" の中）にいるか。色とキーの名前は ここでだけ 出します */
+function 文字列の中にいる() {
+  const 前 = ta.value.slice(0, ta.selectionEnd);
+  const 行 = 前.slice(前.lastIndexOf('\n') + 1);
+  return ((行.match(/"/g) || []).length % 2) === 1;
+}
+
+/**
+ * suggest.js に わたす「候補ぜんぶ」。打つたびに 呼ばれるので 軽くします。
+ * ・いつもの候補（文法・ことば）は 最初に1回 作ったものを 使いまわす
+ * ・変わるところ（ワールドのもの・自分の変数）だけ そのつど 作る
+ */
+function 語彙をとる() {
+  // " の中では 色とキーの名前だけ（SPEC2 G-3）
+  if (文字列の中にいる()) return 色キーの候補;
+  return いつもの候補.concat(ワールドの候補(), じぶんの候補());
+}
+
+/**
+ * ★ここで 予測変換を 作ります★
+ * このすぐ下の「16. キーを だれに わたすか」で、app.js は window の capture に
+ * onKeyCapture を つけて、ゲーム用のキー（スペース・エンター・矢印）に
+ * stopImmediatePropagation() をしています。
+ * suggest.js も window の capture でキーを見るので、
+ * ★かならず onKeyCapture より先に ここで作ってください★
+ * （あとにすると スペースやエンターが suggest.js まで 届きません）
+ */
+const 予測変換 = new 予測(ta, 語彙をとる);
+予測変換.onInsert = () => { markDirty(); };
+
+/* =======================================================================
+   16. キーを だれに わたすか
 
    ・ゲームの画面をクリックしているとき → ゲームへ。
      矢印キーとスペースでページがスクロールしないように止める。
@@ -2081,7 +2589,7 @@ stageWrap.addEventListener('blur',  () => stageWrap.classList.remove('focused'))
 stageWrap.addEventListener('dragstart', (e) => e.preventDefault());
 
 /* =======================================================================
-   16. モデリング部屋に「R15」の見本モデルを入れておく
+   17. モデリング部屋に「R15」の見本モデルを入れておく
 
    アニメ部屋でそのまま歩きを作れるように、R15（15 パーツ）の見本を
    localStorage['kotodama-models'] に足します。
@@ -2137,7 +2645,7 @@ function R15を入れておく() {
 }
 
 /* =======================================================================
-   17. 最初に1回だけやること
+   18. 最初に1回だけやること
    ======================================================================= */
 async function boot() {
   readMetrics();
