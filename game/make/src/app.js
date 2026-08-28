@@ -1721,6 +1721,15 @@ function setRunUI(on) {
   btnRun.title = on ? 'ストップ' : 'プレイ';
   // 動いている間は、つかんで動かす道具は使えない
   Object.keys(道具ボタン).forEach((k) => { if (道具ボタン[k]) 道具ボタン[k].disabled = on; });
+
+  // ▶ プレイ中だけ、マウスで見回せるようにする。
+  // 止まっているときにマウスを掴むと、ブラウザが
+  // 「制限されています。Escで解除」と出してきて、
+  // ものを選ぶだけのクリックの じゃまになります。
+  if (game) game.プレイ中 = on;
+  if (!on && typeof document !== 'undefined' && document.exitPointerLock) {
+    try { document.exitPointerLock(); } catch (_) { /* 平気 */ }
+  }
 }
 
 function run() {

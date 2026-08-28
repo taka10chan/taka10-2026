@@ -920,6 +920,12 @@ export class Game {
     this._カメラ注視もの = null;  // カメラをむかせる(もの) の あいて
     this._マウスでみまわす = true;
 
+    // ▶ プレイ中かどうか。画面（app.js）が切りかえます。
+    // 止まっているとき（＝ものを置いたり動かしたりしているとき）に
+    // マウスを掴んでしまうと、ブラウザが「制限されています。Escで解除」と
+    // 出してきて、ものを選ぶだけでも じゃまになります。
+    this.プレイ中 = false;
+
     // --- きほんの ジオメトリ（つかいまわす。これが かるさの ひみつ） ---
     this._geoはこ = this._しげんにいれる(new THREE.BoxGeometry(1, 1, 1));
     this._geoたま = this._しげんにいれる(new THREE.SphereGeometry(0.5, 18, 12));
@@ -2421,8 +2427,10 @@ export class Game {
         this._ボタン中[b] = true;
         this._ボタン待ち[b] = true;
       }
-      // マウスで 見まわせるようにするのは 左クリックのときだけ
-      if (b === 0 && this._マウスでみまわす && !this._ポインタロック中) {
+      // マウスで 見まわせるようにするのは
+      //   ・左クリックのときだけ
+      //   ・▶ プレイ中のときだけ（止まっているときは ものを選ぶための クリック）
+      if (b === 0 && this.プレイ中 && this._マウスでみまわす && !this._ポインタロック中) {
         try {
           if (typeof canvas.requestPointerLock === 'function') canvas.requestPointerLock();
         } catch (err) { /* できなくても こまらない */ }
